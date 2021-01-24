@@ -1,0 +1,374 @@
+#!/bin/bash
+
+# *******************************************************************************************
+#  Configurator script for AWS S3 bucket upload from the distribution folder
+#
+#  Command:  dist-upload [params]
+#
+#  Optional params:
+#   -c    (configFile)      The name of the config file to save (-w) or use. [aws.distconfig]
+#   -w                      Config file write mode, for creating configuration(s).
+#   -p    (profileName)     Sets the AWS profile name. [default]
+#   -r    (regionName)      Sets the AWS region name for the profile. [us-east-1]
+#   -a    (accessKey)       Sets the AWS IAM user's access_key for the profile.
+#   -s    (secretKey)       Sets the AWS IAM user's secret_access_key for the profile.
+#   -g    (true|[false])    Should the name of the config file be added to .gitignore file.
+#   -d    (distDirectory)   Sets the distribution directory. [dist]
+#   -b    (bucketName)      Sets the AWS S3 bucket name in config.
+#   -i    (bucketName|off)  Sets the AWS S3 bucket name for incremental release backup in config.
+#                            Note: in case of identical or empty name, an index.html file
+#                            is created, and the versioning is done using http-redirect.
+##   -m    (versionMax)     The maximum number of versions kept in the bucket. Older will be deleted.
+##   -v    (versionName)    Makes a release: a version is added to the incremental backup.
+##   -l    [tailNumber]     Lists [the last n number of] the release versions in the incremental backup bucket.
+##   -u                     Undo previous release: Rolls back the code to previsous state, deleting the last release.
+#   -y                      Answers 'yes' to the config file overwrite question.
+#
+#  Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
+#  Licence:  MIT
+# *******************************************************************************************
+
+# Setting base variables
+VERSION="1.0"
+BASE_DIR=$(dirname "$0")
+NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+$" # regexp pattern for name checking
+CONFIG_FILE_NAME_DEFAULT="dist-upload"    # Default name for the config file to save.
+CONFIG_FILE_TYPE="distconfig"             # Config file ending.
+CONFIG_FILE_DIR="."                       # Place the config file in this folder.
+DIST_DIR_DEFAULT="dist"                   # Default value for the folder name to send to S3.
+DEFAULT_BACKUP_BUCKET="off"               # Release backup is switched off as default.
+
+echo "---------------  S3 upload-dist $VERSION  ---------------"
+
+# Check if aws-cli is installed
+if command -v aws 2>&1 | grep -q 'aws' ; then
+  :
+else
+  echo "The aws-cli installation is missing."; exit 1
+fi
+
+# Default values for AWS config
+DEFAULT_PROFILE="default"
+DEFAULT_BUCKET=""
+
+# Reading out the optional flags
+while getopts "c:wp:d:b:r:a:s:g:y:i:m:v:l:u:" flag
+do
+    case "${flag}" in
+        c)  CONFIG_FILE_NAME=$OPTARG;;
+        w)  CONFIG_FILE_WRITE_MODE="true";;
+        p)  PROFILE=$OPTARG;;
+        r)  AWS_REGION=$OPTARG;;
+        a)  ACCESS_KEY=$OPTARG;;
+        s)  SECRET_KEY=$OPTARG;;
+        g)  GITIGNORE=$OPTARG;;
+        d)  DIST_DIR=$OPTARG;;
+        b)  S3_BUCKET=$OPTARG;;
+
+        i)  arg=${OPTARG#-}
+            if [ $arg == $OPTARG ]; then
+              BACKUP_BUCKET=$OPTARG
+            else
+              BACKUP_BUCKET="same"
+              OPTIND=$OPTIND-1
+            fi
+            ;;
+        m) ;;
+        v)  RELEASE_VERSION=$OPTARG;;
+        l) ;;
+        u) ;;
+
+        y)  YES=true;;
+    esac
+done
+
+# CONFIG SECTION ******************************************************************************
+
+# If config file is set in params, use it, otherwise go on with default
+if [ -z "$CONFIG_FILE_NAME" ]; then
+    CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
+fi
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] ; then
+  # If only write mode is set (no config name is given)  then overwrite 
+  # Cecking and setting the config file name (Characters and numbers only)
+  if [[ ! $CONFIG_FILE_NAME =~ $NAME_PATTERN ]]; then
+    echo "ERROR : Invalid config file name ($CONFIG_FILE_NAME): only characters and numbers allowed!"; exit 1
+  fi
+else
+  if [ -z "$CONFIG_FILE_NAME" ]; then
+    CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
+  else
+    CONFIG_FILE_NAME_DEFAULT=$CONFIG_FILE_NAME  
+  fi
+  echo "Using config file: $CONFIG_FILE_NAME"
+fi
+
+CONFIG_FILE="$CONFIG_FILE_DIR/$CONFIG_FILE_NAME.$CONFIG_FILE_TYPE"
+echo "Reading in config file: $CONFIG_FILE_NAME.$CONFIG_FILE_TYPE"
+# If the config file exists, read its contents
+if [ -f "$CONFIG_FILE" ]; then
+  while IFS= read -r ROW
+  do
+    params=(${ROW//=/ })
+    case "${params[0]}" in
+      AWS_PROFILE)
+        DEFAULT_PROFILE=${params[1]}
+        ;;
+      DIST_DIR)
+        DIST_DIR_DEFAULT=${params[1]}
+        ;;
+      S3_BUCKET)
+        DEFAULT_BUCKET=${params[1]}
+        ;;
+      BACKUP_BUCKET)
+        DEFAULT_BACKUP_BUCKET=${params[1]}
+      ;;
+    esac
+  done < "$CONFIG_FILE"
+fi
+
+# If the config write param is set and the file already exists, confirm to overwrite
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -f "$CONFIG_FILE" ] ; then
+  if [ -z "$YES" ] ; then
+    read -rp "AWS config file already exists, do you want to overwrite it? (y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+  fi
+  echo "Writing config file: $CONFIG_FILE"
+fi
+
+# If not previously set, ask for which of the AWS (named)profiles to use
+if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$PROFILE" ]; then
+  PROFILE=$DEFAULT_PROFILE
+fi
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$PROFILE" ]; then
+  read -p "AWS profile name [$DEFAULT_PROFILE]:" PROFILE
+  if [ -z "$PROFILE" ]; then
+    PROFILE=$DEFAULT_PROFILE
+  fi
+fi
+
+# Checking the given profile name
+if [[ $PROFILE =~ ^[A-Za-z][A-Za-z0-9]+$ ]]; then
+  echo " Using named profile: $PROFILE"
+else
+  echo "ERROR: Invalid profile name ($PROFILE): only characters and numbers are allowed, with a starting character."; exit 1;
+fi
+
+# Set the region and keys if present
+if [ -z "$AWS_REGION" ]; then
+  :
+else
+  if aws configure set region $AWS_REGION --profile $PROFILE 2>&1 | grep -q 'error'; then
+    echo "Error at setting the region name ($AWS_REGION)!"; exit 1
+  else
+    echo "Region ($AWS_REGION) has been set for profile ($PROFILE)."
+  fi
+fi
+if [ -z "$ACCESS_KEY" ]; then
+  :
+else
+  if aws configure set aws_access_key_id $ACCESS_KEY --profile $PROFILE 2>&1 | grep -q 'error'; then
+    echo "Error at setting the access key ($ACCESS_KEY)!"; exit 1
+  else
+    echo "Access key ($ACCESS_KEY) has been set for profile ($PROFILE)."
+  fi
+fi
+if [ -n "$SECRET_KEY" ]; then
+  if aws configure set aws_secret_access_key $SECRET_KEY --profile $PROFILE 2>&1 | grep -q 'error'; then
+    echo "Error at setting the secret key (*** ${SECRET_KEY: (-4)})!"; exit 1
+  else
+    echo "Secret key (*** ${SECRET_KEY: (-4)}) has been set for profile ($PROFILE)."
+  fi
+fi
+
+# Checking whether the profile exists
+if [[ $(aws configure --profile $PROFILE list ) && $? -eq 0 ]]; then
+  : # nothing to do
+else
+    # If in write mode, running the AWS configure command, quiting if it has failed
+    if [ -n "$CONFIG_FILE_WRITE_MODE" ] ; then
+      echo "Profile ($PROFILE) cannot be found, running the AWS configure command to set it up."
+      aws configure --profile $PROFILE || exit 1 && echo "AWS configuration saved."
+    else
+      echo "AWS profile ($PROFILE) cannot be found!"; exit 1
+    fi
+fi
+
+# Setting the dist directory if it is not set already
+if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$DIST_DIR"  ]; then
+    DIST_DIR=$DIST_DIR_DEFAULT
+fi
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$DIST_DIR" ]; then
+  read -p "Dist directory [$DIST_DIR_DEFAULT]: " DIST_DIR
+  if [ -z "$DIST_DIR" ]; then
+    DIST_DIR=$DIST_DIR_DEFAULT
+  fi
+fi
+if [[ $DIST_DIR =~ $NAME_PATTERN ]]; then
+  echo " Using distribution directory: $DIST_DIR"
+else
+  echo "Invalid dist directory name ($DIST_DIR): only characters and numbers allowed!"; exit 1
+fi
+
+if [ ! -d "$DIST_DIR" ]; then
+  echo "The distribution folder ($DIST_DIR) does not exists!"; exit 1
+fi
+
+# If not previously set, getting the S3 bucket name
+if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$S3_BUCKET" ]; then
+    S3_BUCKET=$DEFAULT_BUCKET
+fi
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$S3_BUCKET" ]; then
+  read -p "Amazon S3 bucket name [$DEFAULT_BUCKET]: " S3_BUCKET
+  if [ -z "$S3_BUCKET" ]; then
+    S3_BUCKET=$DEFAULT_BUCKET
+  fi
+fi
+# Checking the given bucket name format
+if [[ "$S3_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
+  echo " Using S3 bucket: $S3_BUCKET"
+else
+  echo "Invalid bucket name!"; exit 1;
+fi
+# Checking whether the bucket exists on S3 and reachable with the given profile
+if aws s3 ls $S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
+  echo "ERROR: The given S3 bucket '$S3_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
+else
+  echo "  Bucket exists."
+fi
+# Checking write permission on bucket
+TEST_FILE="AWS_dist_configure_write_access_test.file"
+echo "AWS distribution write access TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE 
+if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'error' ; then
+  echo "Bucket write test has failed. Check the permissions of the user!"; exit 1
+else
+  echo "  Bucket verified."
+fi
+# Clean up
+rm $BASE_DIR/$TEST_FILE
+aws s3 rm s3://$S3_BUCKET --profile $PROFILE
+
+
+# If backup bucket is set or given as a param, check and set it too
+if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z BACKUP_BUCKET ] ; then
+  BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
+fi
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$BACKUP_BUCKET" ] ; then
+  read -p "Amazon S3 'BACKUP bucket' name [$DEFAULT_BACKUP_BUCKET] ('off' for none, 'same' for bucket '$S3_BUCKET'): " BACKUP_BUCKET
+  if [ -z "$BACKUP_BUCKET" ]; then
+    BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
+  fi
+fi
+# If not switched off  and its name differs from main bucket, check it
+if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ] && [ "$BACKUP_BUCKET" != "same" ] && [ "$BACKUP_BUCKET" != "off"  ] ; then
+  # Checking the given bucket name format
+  if [[ "$BACKUP_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
+    echo "Using S3 bucket for backup: $BACKUP_BUCKET"
+  else
+    echo "Invalid backup bucket name ($BACKUP_BUCKET)!"; exit 1;
+  fi
+  # Checking whether the bucket exists on S3 and reachable with the given profile
+  if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
+    echo "The given S3 backup bucket '$BACKUP_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
+  else
+    echo " Backup bucket exists."
+  fi
+  # Checking write permission on bucket
+  TEST_FILE="AWS_dist_configure_write_access_test.file"
+  echo "Write TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE 
+  if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'error' ; then
+    echo "Bucket write test has failed. Check the permissions of the user!"; exit 1
+  else
+    echo " Backup bucket verified."
+  fi
+  # Clean up
+  rm $BASE_DIR/$TEST_FILE
+  aws s3 rm s3://$BACKUP_BUCKET --profile $PROFILE
+else
+  if [ -n "$CONFIG_FILE_WRITE_MODE"  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
+    echo "Backup is switched OFF."
+  fi
+fi
+
+# If in write mode, then writing out the configuration
+if [ -n "$CONFIG_FILE_WRITE_MODE" ] ; then
+  echo "" > "$CONFIG_FILE"    # first emptying the file
+  echo "AWS_PROFILE=$PROFILE" >> $CONFIG_FILE
+  echo "DIST_DIR=$DIST_DIR" >> $CONFIG_FILE
+  echo "S3_BUCKET=$S3_BUCKET" >> $CONFIG_FILE
+  echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $CONFIG_FILE
+  # Adding the config file to .gitignore
+  if [ "$GITIGNORE" == "true" ]; then
+    if [ -f $BASE_DIR/../.gitignore ]; then
+      if grep -q *.$CONFIG_FILE_TYPE $BASE_DIR/../.gitignore 2>&1 ; then
+        :
+      else
+        echo "" >> $BASE_DIR/../.gitignore
+        echo "# AWS S3 distribution config file" >> $BASE_DIR/../.gitignore
+        echo *.$CONFIG_FILE_TYPE  >> $BASE_DIR/../.gitignore
+        echo "" >> $BASE_DIR/../.gitignore
+        echo "The config file type is added to the .gitignore file."
+      fi
+    else
+      echo "If you will use Git in the future, you may add $CONFIG_FILE_NAME to your .gitignore file."
+    fi
+  fi
+  # Give a note about how to use the command with the config
+  CCONFIG=""
+  if [ "$CONFIG_FILE_NAME" != "$CONFIG_FILE_NAME_DEFAULT" ]; then
+    CCONFIG=" -c $CONFIG_FILE_NAME"
+  fi
+
+  echo "Config file saved. You may use the command 'dist_upload$CCONFIG' to upload your site."
+  exit 0
+fi
+
+
+# SYNC SECTION *********************************************************************************
+
+# Checking whether the bucket exists on S3 and reachable with the given profile
+if aws s3 ls $S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
+  echo "The given S3 bucket does not exists or not reachable with the credentials set in the profile '$PROFILE!'"; exit 1
+else
+  echo "Starting the sync..."
+fi
+
+if [ -z "BACKUP_BUCKET" ]; then
+  BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
+fi
+if [ "$BACKUP_BUCKET" != "off" ] ; then
+    echo " Backing up existing distribution"
+    echo "  Using backup bucket: $BACKUP_BUCKET"
+    echo "  Creating release version: "
+fi
+
+
+# Getting the region from the profile
+AWS_REGION=`aws configure get region --profile $PROFILE`
+
+echo "Syncing $DIST_DIR -> S3://$S3_BUCKET"
+
+
+# Sync the dist files to S3
+if aws s3 sync $DIST_DIR s3://$S3_BUCKET --profile $PROFILE --delete --acl public-read | grep -q "error"; then
+  echo "/////////////////////////////////////////////"
+  echo "//                                         //"
+  echo "//               WARNING !                 //"
+  echo "//  File sync failed, upload unsuccesful!  //"
+  echo "//                                         //"
+  echo "/////////////////////////////////////////////"; exit 1
+else
+  echo "••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
+  echo "•                                                      •"
+  echo "•  Synchronisation successful. Your site is uploaded.  •"
+  echo "•                                                      •"
+  echo "••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
+  echo ""
+  echo "Site URL: http://${S3_BUCKET}.s3-website.${AWS_REGION}.amazonaws.com"
+fi
+
+# If a release version is given
+if [ -n "$RELEASE_VERSION" ] ; then
+ :
+fi
+
+exit 0
