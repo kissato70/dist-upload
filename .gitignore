@@ -1,1 +1,2 @@
-*.distconfig
+*.dist.config
+dist
