@@ -15,15 +15,12 @@
 #   -g    (true|[false])        Should the name of the config file be added to .gitignore file.
 #   -d    (distDirectory)       Sets the distribution directory. [dist]
 #   -b    (bucketName)          Sets the AWS S3 bucket name in config.
-#   -i    (bucketName|same|off) Sets the AWS S3 bucket name for incremental release backup in config.
-#                                 Note: in case of identical or empty name, an index.html file
-#                                 is created, and the versioning is done using http-redirect.
+#   -i    (bucketName|off)      Sets the AWS S3 bucket name for incremental release backup in config.
 ##  -R    [versionName]         Restore the distribution bucket. If no param is given, restore to the last version.
 ##   -m    (versionMax)         The maximum number of versions kept in the bucket. Older will be deleted.
-##   -v    [versionName]        Makes a release: a version is added to the incremental backup.
-#   -e    (versionPrefix)       The prefix for automated version names, if versionName is empty
+#   -e    (branchFolder)        The folder for automated version storage. You can store different branches this way.
 ##   -l    [tailNumber]         Lists [the last n number of] the release versions in the incremental backup bucket.
-##   -U                         Undo previous release: Rolls back the code to previsous state, deleting the last release.
+##   -U                         Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
 #   -y                          Answers 'yes' and default option to the config questions.
 #
 #  Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
@@ -31,15 +28,15 @@
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.0.0"
+VERSION="1.0.1"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
 CONFIG_FILE_TYPE="dist.config"             # Config file ending.
 CONFIG_FILE_DIR="."                       # Place the config file in this folder.
 DIST_DIR_DEFAULT="dist"                   # Default value for the folder name to send to S3.
-#DEFAULT_BACKUP_BUCKET="off"               # Release backup is switched off as default.
-DEFAULT_RELEASE_PREFIX="Version"          # Version name prefix ("Version-{versionName}")
+#DEFAULT_BACKUP_BUCKET="off"              # Backup is switched off as default.
+DEFAULT_BRANCH_FOLDER="Main"              # Branch name prefix in the backup bucket ("Branch/{versionName}")
 PREFIX_PATTERN="^[A-Za-z0-9]+$"
 
 echo "---------------------------------------------------------------------"
@@ -58,7 +55,7 @@ DEFAULT_PROFILE="default"
 DEFAULT_BUCKET=""
 
 # Reading out the optional flags
-while getopts "c:wp:d:b:r:a:s:g:yi:m:v:e:l:u:" flag
+while getopts "c:wp:d:b:r:a:s:g:yi:m:e:l:u:" flag
 do
     case "${flag}" in
         c)  CONFIG_FILE_NAME=$OPTARG;;
@@ -75,19 +72,12 @@ do
             if [ $arg == $OPTARG ]; then
               BACKUP_BUCKET=$OPTARG
             else
-              BACKUP_BUCKET="same"
+              BACKUP_BUCKET="off"
               OPTIND=$OPTIND-1
             fi
             ;;
         m) ;;
-        v)  arg=${OPTARG#-}
-            if [ $arg == $OPTARG ]; then
-              RELEASE_VERSION=$OPTARG
-            else
-              OPTIND=$OPTIND-1
-            fi
-            ;;
-        e)  DEFAULT_RELEASE_PREFIX=$OPTARG;;
+        e)  DEFAULT_BRANCH_FOLDER=$OPTARG;;
         l) ;;
         u) UNDO="true";;
 
@@ -111,7 +101,7 @@ else
   if [ -z "$CONFIG_FILE_NAME" ]; then
     CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
   else
-    CONFIG_FILE_NAME_DEFAULT=$CONFIG_FILE_NAME  
+    CONFIG_FILE_NAME_DEFAULT=$CONFIG_FILE_NAME
   fi
   echo "Using config file: $CONFIG_FILE_NAME"
 fi
@@ -294,7 +284,7 @@ if [ -z "$BACKUP_BUCKET" ]; then
   BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
 fi
 # If not switched off  and its name differs from main bucket, check it (if in write mode)
-if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ] && [ "$BACKUP_BUCKET" != "same" ] && [ "$BACKUP_BUCKET" != "off"  ] && [ -n "$CONFIG_FILE_WRITE_MODE" ] ; then
+if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ -n "$CONFIG_FILE_WRITE_MODE" ] ; then
   # Checking the given bucket name format
   if [[ "$BACKUP_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
     echo "  Using S3 bucket for backup: $BACKUP_BUCKET"
@@ -328,33 +318,25 @@ else
   if [ -n "$CONFIG_FILE_WRITE_MODE"  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
     echo "  Backup is switched OFF."
   fi
-  if [ -n "$CONFIG_FILE_WRITE_MODE"  ] && [ "$BACKUP_BUCKET" == "same" ] ; then
-    # We need to check, whether the bucket is empty (it can mess up the bucket otherwise)
-    BUCKET_CONTENT=`aws s3 ls --profile $PROFILE s3://$S3_BUCKET`
-    if [ -n "$BUCKET_CONTENT" ]; then
-      echo "ERROR: Bucket is not empty! Only an empty bucket can be used for backup location."; exit 1
-    fi
-    echo "  Backup is using the same bucket ($S3_BUCKET)."
-  fi
 fi
 
 # If UNDO mode selected, leave this part out
 if [ -z "$UNDO" ]; then
 
   # Setting the version prefix if it is not set already (and backup is not set to 'off')
-  if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$RELEASE_PREFIX" ]; then
-      RELEASE_PREFIX=$DEFAULT_RELEASE_PREFIX
+  if [ -z "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$BRANCH_FOLDER" ]; then
+      BRANCH_FOLDER=$DEFAULT_BRANCH_FOLDER
   fi
-  if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$RELEASE_PREFIX" ] && [ -z "$YES" ]; then
-    read -p "Release prefix [$DEFAULT_RELEASE_PREFIX]: " RELEASE_PREFIX
+  if [ -n "$CONFIG_FILE_WRITE_MODE" ] && [ -z "$BRANCH_FOLDER" ] && [ -z "$YES" ]; then
+    read -p "Release prefix [$DEFAULT_BRANCH_FOLDER]: " BRANCH_FOLDER
   fi
-  if [ -z "$RELEASE_PREFIX" ]; then
-    RELEASE_PREFIX=$DEFAULT_RELEASE_PREFIX
+  if [ -z "$BRANCH_FOLDER" ]; then
+    BRANCH_FOLDER=$DEFAULT_BRANCH_FOLDER
   fi
-  if [[ ! $RELEASE_PREFIX =~ $PREFIX_PATTERN ]]; then
-    echo "ERROR: Invalid release prefix name ($RELEASE_PREFIX): only letters and numbers allowed!"; exit 1
+  if [[ ! $BRANCH_FOLDER =~ $PREFIX_PATTERN ]]; then
+    echo "ERROR: Invalid release prefix name ($BRANCH_FOLDER): only letters and numbers allowed!"; exit 1
   else
-    echo "  Using release prefix: $RELEASE_PREFIX"
+    echo "  Using release prefix: $BRANCH_FOLDER"
   fi
 
 
@@ -365,7 +347,7 @@ if [ -z "$UNDO" ]; then
     echo "DIST_DIR=$DIST_DIR" >> $CONFIG_FILE
     echo "S3_BUCKET=$S3_BUCKET" >> $CONFIG_FILE
     echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $CONFIG_FILE
-    echo "RELEASE_PREFIX=$RELEASE_PREFIX" >> $CONFIG_FILE
+    echo "BRANCH_FOLDER=$BRANCH_FOLDER" >> $CONFIG_FILE
     # Adding the config file to .gitignore
     if [ "$GITIGNORE" == "true" ]; then
       if [ -f $BASE_DIR/.gitignore ]; then
@@ -391,7 +373,7 @@ if [ -z "$UNDO" ]; then
     echo ""
     echo "- Config file saved. -"
     echo ""
-    echo "For uploading your site, you can use now the command:  dist_upload$CCONFIG"
+    echo "For uploading your site, you can use now the command:  dist-upload$CCONFIG"
     echo ""
     exit 0
   fi
@@ -418,14 +400,9 @@ if [ -z "$BACKUP_BUCKET" ]; then
 fi
 # If it is not switched off, start the process of backup
 if [ "$BACKUP_BUCKET" != "off" ] ; then
-    # If the same bucket is used, set the bucket name to the main bucket
-    if [ "$BACKUP_BUCKET" == "same" ]; then
-      BACKUP_BUCKET=$S3_BUCKET
-    else
-      # Check whether the backup bucket exists
-      if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
-        echo "ERROR: The given backup bucket ($BACKUP_BUCKET) does not exists or not reachable with the credentials set in the profile '$PROFILE!'"; exit 1
-      fi
+    # Check whether the backup bucket exists
+    if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
+      echo "ERROR: The given backup bucket ($BACKUP_BUCKET) does not exists or not reachable with the credentials set in the profile '$PROFILE!'"; exit 1
     fi
     # Reading in existing release names
     VERSIONS=`aws s3 ls --profile $PROFILE s3://$BACKUP_BUCKET  | cut -c32- | grep / | tr -s '\n' ' '`
@@ -445,10 +422,10 @@ if [ "$BACKUP_BUCKET" != "off" ] ; then
       echo "    Using backup bucket: $BACKUP_BUCKET"
       # Create release version id with prefix
       if [ -z "$RELEASE_VERSION" ]; then
-        RELEASE_VERSION="$RELEASE_PREFIX/$VERSION"
+        RELEASE_VERSION="$BRANCH_FOLDER/$VERSION"
       fi
       echo "    Creating release version: $RELEASE_VERSION"
-      if aws s3 cp $DIST_DIR s3://$BACKUP_BUCKET/$RELEASE_VERSION/  --recursive  --profile $PROFILE  --acl public-read 2>&1 > /dev/null | grep -q "error" ; then
+      if aws s3 sync $DIST_DIR s3://$BACKUP_BUCKET/$RELEASE_VERSION/  --delete  --profile $PROFILE  --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error" ; then
         echo "ERROR: Backup error: copy from dist folder to backup bucket has failed."; exit 1
       fi
     else    #UNDO mode
@@ -469,13 +446,13 @@ echo "Syncing $DIST_DIR -> S3://$S3_BUCKET"
 
 # Sync the dist files to S3
 if [ "$BACKUP_BUCKET" == "off" ] || [ "$BACKUP_BUCKET" != "$S3_BUCKET"  ]; then
-  if aws s3 sync $DIST_DIR s3://$S3_BUCKET --profile $PROFILE --delete --acl public-read 2>&1 > /dev/null | grep -q "error"; then
+  if aws s3 sync $DIST_DIR s3://$S3_BUCKET --profile $PROFILE --delete --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error"; then
     SYNC_ERROR="ERROR: Uploading to bucket has failed."
   fi
 else
   if [ "$BACKUP_BUCKET" == "$S3_BUCKET" ]; then
-    INDEX_HTML='<html><head><meta http-equiv="Refresh" content="0; URL=./$RELEASE_VERSION/"></head></html>'
-    echo $INDEX_HTML | aws s3 cp - s3://$S3_BUCKET/index.html --profile $PROFILE --acl public-read 
+    INDEX_HTML='<html><head><meta http-equiv="Refresh" content="1; URL=./'$RELEASE_VERSION'/index.html"></head></html>'
+    echo $INDEX_HTML | aws s3 cp - s3://$S3_BUCKET/index.html --profile $PROFILE --acl public-read --content-type text/html
   fi
 fi
 if [ -n "$SYNC_ERROR" ]; then
