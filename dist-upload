@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # **************************************************************************************************************************
-#  Configurator script for AWS S3 bucket upload from the distribution folder
+#  Script for AWS S3 bucket upload from the distribution folder
 #
 #  Command:  dist-upload [params]
 #
@@ -474,7 +474,7 @@ if [ "$BACKUP_BUCKET" != "off" ] ; then
       for FOLDER in $VERSIONS
         do
           VERS_INDEX=$((VERS_INDEX+1))
-          if [ "$LIST_TAIL" -eq 0 ] || [ "$VERS_INDEX" -ge "$VERS_FIRST_INDEX"  ]; then
+          if [ -z "$LIST_TAIL"  ] || [ "$LIST_TAIL" -eq 0 ] || [ "$VERS_INDEX" -ge "$VERS_FIRST_INDEX"  ]; then
             echo "  `echo $FOLDER | sed 's/.$//'`"
           fi
         done

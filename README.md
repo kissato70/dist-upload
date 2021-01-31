@@ -1,12 +1,12 @@
 # dist-upload
 
-## Configurator script for AWS S3 bucket upload from the distribution folder
+## Script for AWS S3 bucket upload from the distribution folder
 
-### Last release version: 1.1.0
+### Last release version: __1.1.0__
 
-Command:  dist-upload [params]
+__Syntax__:  dist-upload [params]
 
-  Optional params:
+_Optional params:_
 
    -c    (configFile)          The name of the config file to save (-w) or use. [aws.distconfig]
 
@@ -40,7 +40,28 @@ Command:  dist-upload [params]
 
    -S                          Silent mode. Hides all the information about the process.
 
-
-  Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
+## Examples
+_To configure the system, as the first step:_
+```script
+dist-upload -w
+```
+_Creating a special config file:_
+```script
+dist-upload -c myConfig -w
+```
+_Updating the config file, changing one or multiple params_
+_(For example switching off the backup):_
+```script
+dist-upload -c myConfig -w -y -i off
+```
+_Uploading the 'build' folder (forcing the folder) in silent mode, while using the branch name 'stage':_
+```bash
+dist-upload -d build -S -f stage
+```
+_Listing the backup folder content:_
+```bash
+dist-upload -l
+```
+  >Written by: __Attila Kiss__, [e-LET Kft](https://e-let.hu), Hungary  ( GitHub: [kissato70](https://github.com/kissato70) )
 
   Licence:  MIT
