@@ -16,7 +16,7 @@
 #   -d    (distDirectory)       Sets the distribution directory. [dist]
 #   -b    (bucketName)          Sets the AWS S3 bucket name in config.
 #   -i    (bucketName|off)      Sets the AWS S3 bucket name for incremental release backup in config.
-##  -R                          Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
+#   -R                          Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
 #   -m    (versionLimit)        The maximum number of versions kept in the bucket. Older will be deleted.
 #   -f    (branchFolder)        The folder for automated version storage. You can store different branches this way.
 #   -l    [tailNumber]          Lists [the last n number of] the release versions in the incremental backup bucket.
