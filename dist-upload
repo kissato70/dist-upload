@@ -28,7 +28,7 @@
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.0"
+VERSION="1.1.1"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
@@ -53,11 +53,11 @@ DEFAULT_PROFILE="default"
 DEFAULT_BUCKET=""
 
 # Reading out the optional flags
-while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:R:S" flag
+while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:RS" flag
 do
     case "${flag}" in
         c)  CONFIG_FILE_NAME=$OPTARG;;
-        w)  CONFIG_FILE_WRITE_MODE=true;;
+        w)  CONFIG_WRITE_MODE=true;;
         p)  PROFILE=$OPTARG;;
         r)  AWS_REGION=$OPTARG;;
         a)  ACCESS_KEY=$OPTARG;;
@@ -65,21 +65,29 @@ do
         g)  GITIGNORE=$OPTARG;;
         d)  DIST_DIR=$OPTARG;;
         b)  S3_BUCKET=$OPTARG;;
-        i)  BACKUP_BUCKET=$OPTARG;;
+        i)  if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
+                OPTIND=$((OPTIND - 1))
+                BACKUP_BUCKET="off"
+            else
+              BACKUP_BUCKET=$OPTARG
+            fi
+            ;;
         m)  VERSION_LIMIT=$OPTARG;;
         f)  BRANCH_FOLDER=$OPTARG;;
-        l)  LIST_TAIL=$OPTARG
+        l)  if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
+                OPTIND=$((OPTIND - 1))
+            else
+              LIST_TAIL=$OPTARG
+            fi
             LIST_MODE=true
             ;;
-        S)  #if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
-            #  OPTIND=$((OPTIND - 1))
-            #fi
-            SILENT_MODE=true;;
+        S)  SILENT_MODE=true;;
         R)  ROLLBACK=true;;
         y)  YES="true";;
         :)  case "$OPTARG" in
               i) BACKUP_BUCKET="off";;
-              l) LIST_MODE=true;;
+              l) LIST_MODE=true
+                  OPTIND=$((OPTIND - 1));;
               R) ROLLBACK=true;;
               S) SILENT_MODE=true;
               OPTIND=$((OPTIND - 1))
@@ -105,7 +113,7 @@ fi
 if [ -z "$CONFIG_FILE_NAME" ]; then
     CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
 fi
-if [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
+if [ "$CONFIG_WRITE_MODE" = true ] ; then
   # If only write mode is set (no config name is given)  then overwrite 
   # Cecking and setting the config file name (letters and numbers only)
   if [[ ! $CONFIG_FILE_NAME =~ $NAME_PATTERN ]]; then
@@ -149,26 +157,26 @@ if [ -f "$CONFIG_FILE" ]; then
     esac
   done < "$CONFIG_FILE"
 else
-  if [ "$CONFIG_FILE_WRITE_MODE" = false ]; then
+  if [ "$CONFIG_WRITE_MODE" != true ]; then
     echo "ERROR: Config file ($CONFIG_FILE_NAME) not found!"; exit 1
   fi
 fi
 
 # If the config write param is set and the file already exists, confirm to overwrite
-if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -f "$CONFIG_FILE" ] ; then
+if [ "$CONFIG_WRITE_MODE" = true ] && [ -f "$CONFIG_FILE" ] ; then
   if [ -z "$YES" ] ; then
     read -rp "AWS config file already exists, do you want to overwrite it? (y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
   fi
 fi
-if [ "$CONFIG_FILE_WRITE_MODE" = true ]; then
+if [ "$CONFIG_WRITE_MODE" = true ]; then
   echoS "Writing to config file: $CONFIG_FILE_NAME"
 fi
 
 # If not previously set, ask for which of the AWS (named)profiles to use
-if [ "$CONFIG_FILE_WRITE_MODE" = false ] && [ -z "$PROFILE" ]; then
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$PROFILE" ]; then
   PROFILE=$DEFAULT_PROFILE
 fi
-if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$PROFILE" ] && [ -z "$YES" ]; then
+if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$PROFILE" ] && [ -z "$YES" ]; then
   read -p "AWS profile name [$DEFAULT_PROFILE]:" PROFILE
 fi
 if [ -z "$PROFILE" ]; then
@@ -214,7 +222,7 @@ if [[ $(aws configure --profile $PROFILE list ) && $? -eq 0 ]]; then
   : # nothing to do
 else
     # If in write mode, running the AWS configure command, quiting if it has failed
-    if [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
+    if [ "$CONFIG_WRITE_MODE" = true ] ; then
       echo "Profile ($PROFILE) cannot be found, running the AWS configure command to set it up."
       aws configure --profile $PROFILE || exit 1 && echo "AWS configuration saved."
     else
@@ -223,10 +231,10 @@ else
 fi
 
 # Setting the dist directory if it is not set already
-if [ "$CONFIG_FILE_WRITE_MODE" = false ] && [ -z "$DIST_DIR"  ]; then
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$DIST_DIR"  ]; then
     DIST_DIR=$DIST_DIR_DEFAULT
 fi
-if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$DIST_DIR" ] && [ -z "$YES" ]; then
+if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$DIST_DIR" ] && [ -z "$YES" ]; then
   read -p "Dist directory [$DIST_DIR_DEFAULT]: " DIST_DIR
 fi
 if [ -z "$DIST_DIR" ]; then
@@ -243,11 +251,11 @@ if [ ! -d "$DIST_DIR" ]; then
 fi
 
 # If not previously set, getting the S3 bucket name
-if [ "$CONFIG_FILE_WRITE_MODE" = false ] && [ -z "$S3_BUCKET" ]; then
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$S3_BUCKET" ]; then
     S3_BUCKET=$DEFAULT_BUCKET
 fi
 if [ -z "$YES" ] || [ -z "$DEFAULT_BUCKET" ]; then
-  if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$S3_BUCKET" ]; then
+  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$S3_BUCKET" ]; then
     if [ -n "$DEFAULT_BUCKET" ]; then
       read -p "Amazon S3 bucket name [$DEFAULT_BUCKET]: " S3_BUCKET
     else
@@ -266,7 +274,7 @@ else
 fi
 
 # If in write mode, then perform some tests
-if [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
+if [ "$CONFIG_WRITE_MODE" = true ] ; then
   # Checking whether the bucket exists on S3 and reachable with the given profile
   if aws s3 ls $S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
     echo "ERROR: The given S3 bucket '$S3_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
@@ -288,11 +296,11 @@ if [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
 fi  # testing if in write mode
 
 # If backup bucket is set or given as a param, check and set it too
-if [ "$CONFIG_FILE_WRITE_MODE" = false ] && [ -z BACKUP_BUCKET ] ; then
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z BACKUP_BUCKET ] ; then
   BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
 fi
 if [ -z "$YES" ] || [ -z "$DEFAULT_BACKUP_BUCKET" ]; then
-  if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$BACKUP_BUCKET" ]; then
+  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$BACKUP_BUCKET" ]; then
     if [ -n "$DEFAULT_BACKUP_BUCKET" ]; then
       read -p "Backup bucket name [$DEFAULT_BACKUP_BUCKET] or use 'off' for none: " BACKUP_BUCKET
     else
@@ -304,7 +312,7 @@ if [ -z "$BACKUP_BUCKET" ]; then
   BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
 fi
 # If not switched off  and its name differs from main bucket, check it (if in write mode)
-if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
+if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ "$CONFIG_WRITE_MODE" = true ] ; then
   # Checking the given bucket name format
   if [[ "$BACKUP_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
     echoS "  Using S3 bucket for backup: $BACKUP_BUCKET"
@@ -335,50 +343,57 @@ if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKU
   # Clean up local file
   rm $BASE_DIR/$TEST_FILE
 else
-  if [ "$CONFIG_FILE_WRITE_MODE" = true  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
+  if [ "$CONFIG_WRITE_MODE" = true  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
     echoS "  Backup is switched OFF."
   fi
 fi
 
 # Setting the branch if it is not set already (and backup is not set to 'off')
-  if [ "$CONFIG_FILE_WRITE_MODE" != true ] && [ -z "$BRANCH_FOLDER" ]; then
+  if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$BRANCH_FOLDER" ]; then
       BRANCH_FOLDER=$DEFAULT_BRANCH_FOLDER
   fi
 
 # If ROLLBACK mode selected or backup is switched off, then leave this part out
-if [ "$ROLLBACK" != true ] && [ "$BACKUP_BUCKET" != 'off'  ]; then
+if [ "$ROLLBACK" != true ]; then
+  if [ "$BACKUP_BUCKET" != 'off' ]; then
+    if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$BRANCH_FOLDER" ] && [ -z "$YES" ]; then
+      if [ -z "$DEFAULT_BRANCH_FOLDER"  ]; then
+        DEFAULT_BRANCH_FOLDER="Main"
+      fi
+      read -p "Release branch [$DEFAULT_BRANCH_FOLDER]: " BRANCH_FOLDER
+    fi
+    if [ -z "$BRANCH_FOLDER" ]; then
+      BRANCH_FOLDER=$DEFAULT_BRANCH_FOLDER
+    fi
+    if [[ ! $BRANCH_FOLDER =~ $NAME_PATTERN ]]; then
+      echo "ERROR: Invalid branch name ($BRANCH_FOLDER): only letters and numbers allowed!"; exit 1
+    else
+      echoS "  Using branch: $BRANCH_FOLDER"
+    fi
 
-  if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$BRANCH_FOLDER" ] && [ -z "$YES" ]; then
-    read -p "Release branch [$DEFAULT_BRANCH_FOLDER]: " BRANCH_FOLDER
-  fi
-  if [ -z "$BRANCH_FOLDER" ]; then
-    BRANCH_FOLDER=$DEFAULT_BRANCH_FOLDER
-  fi
-  if [[ ! $BRANCH_FOLDER =~ $NAME_PATTERN ]]; then
-    echo "ERROR: Invalid branch name ($BRANCH_FOLDER): only letters and numbers allowed!"; exit 1
-  else
-    echoS "  Using branch: $BRANCH_FOLDER"
-  fi
-
-  # Setting the version max number (and backup is not set to 'off')
-  if [ "$CONFIG_FILE_WRITE_MODE" = false ] && [ -z "$VERSION_LIMIT" ]; then
+    # Setting the version max number (and backup is not set to 'off')
+    if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$VERSION_LIMIT" ]; then
+        VERSION_LIMIT=$DEFAULT_VERSION_LIMIT
+    fi
+    if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$VERSION_LIMIT" ] && [ -z "$YES" ]; then
+      if [ -z "$DEFAULT_VERSION_LIMIT"  ]; then
+        DEFAULT_VERSION_LIMIT=5
+      fi
+      read -p "Max count of branch version to keep in backup [$DEFAULT_VERSION_LIMIT] or '0' for unlimited: " VERSION_LIMIT
+    fi
+    if [ -z "$VERSION_LIMIT" ]; then
       VERSION_LIMIT=$DEFAULT_VERSION_LIMIT
-  fi
-  if [ "$CONFIG_FILE_WRITE_MODE" = true ] && [ -z "$VERSION_LIMIT" ] && [ -z "$YES" ]; then
-    read -p "Max count of branch version to keep in backup [$DEFAULT_VERSION_LIMIT] or '0' for unlimited: " VERSION_LIMIT
-  fi
-  if [ -z "$VERSION_LIMIT" ]; then
-    VERSION_LIMIT=$DEFAULT_VERSION_LIMIT
-  fi
-  VERSION_PATTERN="^[0-9]+$"
-  if [[ ! $VERSION_LIMIT =~ $VERSION_PATTERN ]]; then
-    echo "ERROR: Invalid max version limit ($VERSION_LIMIT): only numbers allowed!"; exit 1
-  else
-    echoS "  Using maximum branch version limit: $VERSION_LIMIT"
-  fi
+    fi
+    VERSION_PATTERN="^[0-9]+$"
+    if [[ ! $VERSION_LIMIT =~ $VERSION_PATTERN ]]; then
+      echo "ERROR: Invalid max version limit ($VERSION_LIMIT): only numbers allowed!"; exit 1
+    else
+      echoS "  Using maximum branch version limit: $VERSION_LIMIT"
+    fi
+  fi  # backup is not switched off
 
   # If in write mode, then writing out the configuration
-  if [ "$CONFIG_FILE_WRITE_MODE" = true ] ; then
+  if [ "$CONFIG_WRITE_MODE" = true ] ; then
     echo "" > "$CONFIG_FILE"    # first emptying the file
     echo "AWS_PROFILE=$PROFILE" >> $CONFIG_FILE
     echo "DIST_DIR=$DIST_DIR" >> $CONFIG_FILE
@@ -416,7 +431,7 @@ if [ "$ROLLBACK" != true ] && [ "$BACKUP_BUCKET" != 'off'  ]; then
     exit 0
   fi
 
-fi # not ROLLBACK mode
+fi # not ROLLBACK and not WRITE mode
 
 
 # SYNC SECTION *********************************************************************************

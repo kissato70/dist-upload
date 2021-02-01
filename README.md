@@ -4,6 +4,8 @@
 
 ### Last release version: __1.1.0__
 
+<br>
+
 **`Syntax:`** &nbsp;  `dist-upload` &nbsp;  [optional params]
 
 | option | argument | description |
@@ -21,7 +23,7 @@
 |   -R   |       |                Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.|
 |   -m  |  (versionLimit)  |      The maximum number of versions kept in the bucket. Older will be deleted.|
 |   -f |   (branchFolder)  |      The folder for automated version storage. You can store different branches this way.|
-|   -l |   [tailNumber]  |        Lists [the last n number of] the release versions in the incremental backup bucket.|
+|   -l |   [tailNumber]  |        Lists [optionaly the last n number of] the release versions in the incremental backup bucket.|
 |   -y   | |                       Answers default option to the config questions. Hint: use for changing only the given params.|
 |   -S  | |                        Silent mode. Hides all the information about the process.|
 
