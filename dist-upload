@@ -3,19 +3,20 @@
 # **************************************************************************************************************************
 #  Script for AWS S3 bucket upload from the distribution folder
 #
-#  Command:  dist-upload [params]
+#  Command:  dist-upload [mode] [params]
 #
-#  Optional params:
-#   -c    configFile)          The name of the config file to save (-w) or use. [aws.distconfig]
+#  Arguments:
+#   mode  [ aws | ssh ]       Target mode. If you omit this, it is taken from the config file.
+#   -c    configFile)         The name of the config file to save (-w) or use. [aws.distconfig]
 #   -w                          Config file write mode, for creating configuration(s).
-#   -p    profileName         Sets the AWS profile name. [default]
+#   -i    identity            Sets the AWS profile name [default] or the SSH identity file (.pem) with full path.
 #   -r    regionName          Sets the AWS region name for the profile. [us-east-1]
-#   -a    accessKey           Sets the AWS IAM user's access_key for the profile.
-#   -s    secretKey           Sets the AWS IAM user's secret_access_key for the profile.
-#   -g    true|[false]        Should the name of the config file be added to .gitignore file.
+#   -a    accessName          Sets the AWS IAM user's access_key for the profile or the login name for SSH.
+#   -s    secretPassword      Sets the AWS IAM user's secret_access_key for the profile or the password for SSH.
+#   -g    [true] | false        Should the name of the config file be added to .gitignore file.
 #   -d    distDirectory       Sets the distribution directory. [dist]
 #   -b    bucketName          Sets the AWS S3 bucket name in config.
-#   -i    bucketName|off      Sets the AWS S3 bucket name for incremental release backup in config.
+#   -B    bucketName|off      Sets the AWS S3 bucket name for incremental release backup in config.
 #   -R                          Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
 #   -m    versionLimit        The maximum number of versions kept in the bucket. Older will be deleted.
 #   -f    branchFolder        The folder for automated version storage. You can store different branches this way.
@@ -28,7 +29,7 @@
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.2"
+VERSION="2.0.0"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
@@ -49,23 +50,33 @@ echoS () {
 }
 
 # Default values for AWS config
-DEFAULT_PROFILE="default"
+DEFAULT_IDENTITY="default"
 DEFAULT_BUCKET=""
 
+if [ "$1" == "aws" ] || [ "$1" == "ssh"  ]; then
+  TARGET_MODE=$1
+  shift 1
+else
+  param=$1
+  if [[ ${param:0:1} != "-" ]]; then
+    echo "ERROR: Invalid mode selector."; exit 1
+  fi
+fi
+
 # Reading out the optional flags
-while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:RS" flag
+while getopts "c:wi:d:b:B:r:a:s:g:ym:f:l:RS" flag
 do
     case "${flag}" in
         c)  CONFIG_FILE_NAME=$OPTARG;;
         w)  CONFIG_WRITE_MODE=true;;
-        p)  PROFILE=$OPTARG;;
+        i)  IDENTITY=$OPTARG;;
         r)  AWS_REGION=$OPTARG;;
         a)  ACCESS_KEY=$OPTARG;;
         s)  SECRET_KEY=$OPTARG;;
         g)  GITIGNORE=$OPTARG;;
         d)  DIST_DIR=$OPTARG;;
-        b)  S3_BUCKET=$OPTARG;;
-        i)  if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
+        b)  UPLOAD_BUCKET=$OPTARG;;
+        B)  if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
                 OPTIND=$((OPTIND - 1))
                 BACKUP_BUCKET="off"
             else
@@ -85,7 +96,7 @@ do
         R)  ROLLBACK=true;;
         y)  YES="true";;
         :)  case "$OPTARG" in
-              i) BACKUP_BUCKET="off";;
+              B) BACKUP_BUCKET="off";;
               l) LIST_MODE=true
                   OPTIND=$((OPTIND - 1));;
               R) ROLLBACK=true;;
@@ -96,7 +107,7 @@ do
 done
 
 echoS "---------------------------------------------------------------------"
-echoS "|                      S3 upload-dist $VERSION                         |"
+echoS "|                         Upload-dist $VERSION                         |"
 echoS "---------------------------------------------------------------------"
 
 # Check if aws-cli is installed
@@ -114,7 +125,7 @@ if [ -z "$CONFIG_FILE_NAME" ]; then
     CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
 fi
 if [ "$CONFIG_WRITE_MODE" = true ] ; then
-  # If only write mode is set (no config name is given)  then overwrite 
+  # If only write mode is set (no config name is given)  then overwrite
   # Cecking and setting the config file name (letters and numbers only)
   if [[ ! $CONFIG_FILE_NAME =~ $NAME_PATTERN ]]; then
     echo "ERROR : Invalid config file name ($CONFIG_FILE_NAME): only letters and numbers allowed!"; exit 1
@@ -136,13 +147,22 @@ if [ -f "$CONFIG_FILE" ]; then
   do
     params=(${ROW//=/ })
     case "${params[0]}" in
-      AWS_PROFILE)
-        DEFAULT_PROFILE=${params[1]}
+      TARGET_MODE)
+        DEFAULT_TARGET_MODE=${params[1]}
+        ;;
+      IDENTITY)
+        DEFAULT_IDENTITY=${params[1]}
+        ;;
+      ACCESS_NAME)
+        DEFAULT_ACCESS_KEY=${params[1]}
+        ;;
+      SECRET_PASSWORD)
+        DEFAULT_SECRET_KEY=${params[1]}
         ;;
       DIST_DIR)
         DIST_DIR_DEFAULT=${params[1]}
         ;;
-      S3_BUCKET)
+      UPLOAD_BUCKET)
         DEFAULT_BUCKET=${params[1]}
         ;;
       BACKUP_BUCKET)
@@ -165,85 +185,136 @@ fi
 # If the config write param is set and the file already exists, confirm to overwrite
 if [ "$CONFIG_WRITE_MODE" = true ] && [ -f "$CONFIG_FILE" ] ; then
   if [ -z "$YES" ] ; then
-    read -rp "AWS config file already exists, do you want to overwrite it? (y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+    read -rp "The config file already exists, do you want to overwrite it? (y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
   fi
 fi
 if [ "$CONFIG_WRITE_MODE" = true ]; then
   echoS "Writing to config file: $CONFIG_FILE_NAME"
 fi
 
-# If not previously set, ask for which of the AWS (named)profiles to use
-if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$PROFILE" ]; then
-  PROFILE=$DEFAULT_PROFILE
+# If not set and in write mode, ask for the target mode
+if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$TARGET_MODE" ] && [ -z "$YES" ]; then
+  read -p "Target mode ('aws' or 'ssh') [$DEFAULT_TARGET_MODE]: " TARGET_MODE
 fi
-if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$PROFILE" ] && [ -z "$YES" ]; then
-  read -p "AWS profile name [$DEFAULT_PROFILE]:" PROFILE
+if [ -z "$TARGET_MODE" ]; then
+  TARGET_MODE=$DEFAULT_TARGET_MODE
 fi
-if [ -z "$PROFILE" ]; then
-  PROFILE=$DEFAULT_PROFILE
-fi
-
-# Checking the given profile name
-if [[ $PROFILE =~ ^[A-Za-z][A-Za-z0-9]+$ ]]; then
-  echoS "  Using named profile: $PROFILE"
-else
-  echo "ERROR: Invalid profile name ($PROFILE): only letters and numbers are allowed, with a starting character."; exit 1;
+# Checking the target mode
+if [ "$TARGET_MODE" != "aws" ] && [ "$TARGET_MODE" != "ssh" ]; then
+  echo "ERROR: Invalid target mode ('aws' or 'ssh')!"; exit 1
 fi
 
-# Set the region and keys if present
-if [ -z "$AWS_REGION" ]; then
-  :
-else
-  if aws configure set region $AWS_REGION --profile $PROFILE 2>&1 | grep -q 'error'; then
-    echo "Error at setting the region name ($AWS_REGION)!"; exit 1
+# If not previously set, ask for which of the AWS (named)profiles or identity file to use
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$IDENTITY" ]; then
+  IDENTITY=$DEFAULT_IDENTITY
+fi
+if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$IDENTITY" ] && [ -z "$YES" ]; then
+  if [ "$TARGET_MODE" == "aws" ]; then
+    read -p "AWS profile name [$DEFAULT_IDENTITY]: " IDENTITY
   else
-    echoS "Region ($AWS_REGION) has been set for profile ($PROFILE)."
+    read -p "Identity file for SSH (or 'none' if not used) [$DEFAULT_IDENTITY]: " IDENTITY
   fi
 fi
-if [ -z "$ACCESS_KEY" ]; then
-  :
-else
-  if aws configure set aws_access_key_id $ACCESS_KEY --profile $PROFILE 2>&1 | grep -q 'error'; then
-    echo "ERROR: Error at setting the access key ($ACCESS_KEY)!"; exit 1
-  else
-    echoS "Access key ($ACCESS_KEY) has been set for profile ($PROFILE)."
-  fi
+if [ -z "$IDENTITY" ]; then
+  IDENTITY=$DEFAULT_IDENTITY
 fi
-if [ -n "$SECRET_KEY" ]; then
-  if aws configure set aws_secret_access_key $SECRET_KEY --profile $PROFILE 2>&1 | grep -q 'error'; then
-    echo "ERROR: Error at setting the secret key (*** ${SECRET_KEY: (-4)})!"; exit 1
-  else
-    echoS "Secret key (*** ${SECRET_KEY: (-4)}) has been set for profile ($PROFILE)."
+
+# Asking for login name and password
+if [ "$CONFIG_WRITE_MODE" = true ] && [ "$TARGET_MODE" == "ssh" ] && [ "$IDENTITY" == "none"  ]; then
+  if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$ACCESS_KEY" ]; then
+    ACCESS_KEY=$DEFAULT_ACCESS_KEY
+  fi
+  if [ -z "$ACCESS_KEY" ] && [ -z "$YES" ]; then
+    read -p "Login name for SSH [$DEFAULT_ACCESS_KEY]: " ACCESS_KEY
+  fi
+  if [ -z "$ACCESS_KEY" ]; then
+    ACCESS_KEY=$DEFAULT_ACCESS_KEY
+  fi
+  if [ -z "$SECRET_KEY" ]; then
+    SECRET_KEY=$DEFAULT_SECRET_KEY
+  fi
+  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$SECRET_KEY" ] && [ -z "$YES" ]; then
+    read -p "Password for SSH [$DEFAULT_SECRET_KEY]: " SECRET_KEY
+  fi
+  if [ -z "$SECRET_KEY" ]; then
+    SECRET_KEY=$DEFAULT_SECRET_KEY
   fi
 fi
 
-# Checking whether the profile exists
-if [[ $(aws configure --profile $PROFILE list ) && $? -eq 0 ]]; then
-  : # nothing to do
-else
-    # If in write mode, running the AWS configure command, quiting if it has failed
-    if [ "$CONFIG_WRITE_MODE" = true ] ; then
-      echo "Profile ($PROFILE) cannot be found, running the AWS configure command to set it up."
-      aws configure --profile $PROFILE || exit 1 && echo "AWS configuration saved."
+
+
+# Checking the given AWS profile name
+if [ "$TARGET_MODE" == "aws" ]; then
+  if  [[ $IDENTITY =~ ^[A-Za-z][A-Za-z0-9]+$ ]]; then
+    echoS "  Using named profile: $IDENTITY"
+  else
+    echo "ERROR: Invalid profile name ($IDENTITY): only letters and numbers are allowed, with a starting character."; exit 1;
+  fi
+fi
+
+# Checking the given SSH profile name
+if [ "$TARGET_MODE" == "ssh"  ] && [ "$IDENTITY" != "none"  ]; then
+  if [ -f "$IDENTITY" ]; then
+    echoS "  Using identity file: $IDENTITY"
+  else
+    echo "ERROR: Identity file ($IDENTITY) can not be found!"; exit 1;
+  fi
+fi
+
+# Set the AWS region and keys if present
+if [ "$TARGET_MODE" == "aws" ]; then
+  if [ -n "$AWS_REGION" ]; then
+    if aws configure set region $AWS_REGION --profile $IDENTITY 2>&1 | grep -q 'error'; then
+      echo "Error at setting the region name ($AWS_REGION)!"; exit 1
     else
-      echo "ERROR: AWS profile ($PROFILE) cannot be found!"; exit 1
+      echoS "Region ($AWS_REGION) has been set for profile ($IDENTITY)."
     fi
-fi
+  fi
+  if [ -z "$ACCESS_KEY" ]; then
+    :
+  else
+    if aws configure set aws_access_key_id $ACCESS_KEY --profile $IDENTITY 2>&1 | grep -q 'error'; then
+      echo "ERROR: Error at setting the access key ($ACCESS_KEY)!"; exit 1
+    else
+      echoS "Access key ($ACCESS_KEY) has been set for profile ($IDENTITY)."
+    fi
+  fi
+  if [ -n "$SECRET_KEY" ]; then
+    if aws configure set aws_secret_access_key $SECRET_KEY --profile $IDENTITY 2>&1 | grep -q 'error'; then
+      echo "ERROR: Error at setting the secret key (*** ${SECRET_KEY: (-4)})!"; exit 1
+    else
+      echoS "Secret key (*** ${SECRET_KEY: (-4)}) has been set for profile ($IDENTITY)."
+    fi
+  fi
+
+  # Checking whether the profile exists
+  if [[ $(aws configure --profile $IDENTITY list ) && $? -eq 0 ]]; then
+    : # nothing to do
+  else
+      # If in write mode, running the AWS configure command, quiting if it has failed
+      if [ "$CONFIG_WRITE_MODE" = true ] ; then
+        echo "Profile ($IDENTITY) cannot be found, running the AWS configure command to set it up."
+        aws configure --profile $IDENTITY || exit 1 && echo "AWS configuration saved."
+      else
+        echo "ERROR: AWS profile ($IDENTITY) cannot be found!"; exit 1
+      fi
+  fi
+fi  # AWS  
 
 # Setting the dist directory if it is not set already
 if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$DIST_DIR"  ]; then
     DIST_DIR=$DIST_DIR_DEFAULT
 fi
 if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$DIST_DIR" ] && [ -z "$YES" ]; then
-  read -p "Dist directory [$DIST_DIR_DEFAULT]: " DIST_DIR
+  read -p "Dist folder [$DIST_DIR_DEFAULT]: " DIST_DIR
 fi
 if [ -z "$DIST_DIR" ]; then
   DIST_DIR=$DIST_DIR_DEFAULT
 fi
 if [[ $DIST_DIR =~ $NAME_PATTERN ]]; then
-  echoS "  Using distribution directory: $DIST_DIR"
+  echoS "  Using distribution folder: $DIST_DIR"
 else
-  echo "ERROR: Invalid dist directory name ($DIST_DIR): only letters and numbers allowed!"; exit 1
+  echo "ERROR: Invalid dist folder name ($DIST_DIR): only letters and numbers allowed!"; exit 1
 fi
 
 if [ ! -d "$DIST_DIR" ]; then
@@ -251,102 +322,116 @@ if [ ! -d "$DIST_DIR" ]; then
 fi
 
 # If not previously set, getting the S3 bucket name
-if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$S3_BUCKET" ]; then
-    S3_BUCKET=$DEFAULT_BUCKET
+if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$UPLOAD_BUCKET" ]; then
+    UPLOAD_BUCKET=$DEFAULT_BUCKET
 fi
 if [ -z "$YES" ] || [ -z "$DEFAULT_BUCKET" ]; then
-  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$S3_BUCKET" ]; then
+  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$UPLOAD_BUCKET" ]; then
     if [ -n "$DEFAULT_BUCKET" ]; then
-      read -p "Amazon S3 bucket name [$DEFAULT_BUCKET]: " S3_BUCKET
+      if [ "$TARGET_MODE" == "aws" ]; then
+        read -p "Amazon S3 bucket name [$DEFAULT_BUCKET]: " UPLOAD_BUCKET
+      else
+        read -p "Target path on remote server [$DEFAULT_BUCKET]: " UPLOAD_BUCKET
+      fi
     else
-      read -p "Amazon S3 bucket name: " S3_BUCKET
+      if [ "$TARGET_MODE" == "aws" ]; then
+        read -p "Amazon S3 bucket name: " UPLOAD_BUCKET
+      else
+        read -p "Target path on remote server: " UPLOAD_BUCKET
+      fi
     fi
   fi
 fi
-if [ -z "$S3_BUCKET" ]; then
-  S3_BUCKET=$DEFAULT_BUCKET
-fi
-# Checking the given bucket name format
-if [[ "$S3_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
-  echoS "  Using S3 bucket: $S3_BUCKET"
-else
-  echo "ERROR: Invalid bucket name!"; exit 1;
+if [ -z "$UPLOAD_BUCKET" ]; then
+  UPLOAD_BUCKET=$DEFAULT_BUCKET
 fi
 
-# If in write mode, then perform some tests
-if [ "$CONFIG_WRITE_MODE" = true ] ; then
-  # Checking whether the bucket exists on S3 and reachable with the given profile
-  if aws s3 ls $S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
-    echo "ERROR: The given S3 bucket '$S3_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
-  else
-    echoS "    Bucket exists."
-  fi
-  # Checking write permission on bucket
-  TEST_FILE="AWS_dist_configure_write_access_test.file"
-  echo "AWS distribution write access TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE 
-  if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'error' ; then
-    echo "ERROR: Bucket write test has failed. Check the permissions of the user!"; exit 1
-  else
-    # Clean up backup file
-    aws s3 rm s3://$S3_BUCKET/$TEST_FILE --profile $PROFILE > /dev/null 2>&1
-    echoS "    Bucket is verified."
-  fi
-  # Clean up local file
-  rm $BASE_DIR/$TEST_FILE
-fi  # testing if in write mode
-
-# If backup bucket is set or given as a param, check and set it too
-if [ "$CONFIG_WRITE_MODE" != true ] && [ -z BACKUP_BUCKET ] ; then
-  BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
-fi
-if [ -z "$YES" ] || [ -z "$DEFAULT_BACKUP_BUCKET" ]; then
-  if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$BACKUP_BUCKET" ]; then
-    if [ -n "$DEFAULT_BACKUP_BUCKET" ]; then
-      read -p "Backup bucket name [$DEFAULT_BACKUP_BUCKET] or use 'off' for none: " BACKUP_BUCKET
-    else
-      read -p "Backup bucket name: " BACKUP_BUCKET
-    fi
-  fi
-fi
-if [ -z "$BACKUP_BUCKET" ]; then
-  BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
-fi
-# If not switched off  and its name differs from main bucket, check it (if in write mode)
-if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ "$CONFIG_WRITE_MODE" = true ] ; then
+# TESTING AWS bucket(s)
+if [ "$TARGET_MODE" == "aws" ]; then
   # Checking the given bucket name format
-  if [[ "$BACKUP_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
-    echoS "  Using S3 bucket for backup: $BACKUP_BUCKET"
+  if [[ "$UPLOAD_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
+    echoS "  Using S3 bucket: $UPLOAD_BUCKET"
   else
-    echo "ERROR: Invalid backup bucket name ($BACKUP_BUCKET)!"; exit 1;
+    echo "ERROR: Invalid bucket name!"; exit 1;
   fi
-  # Checking whether the bucket exists on S3 and reachable with the given profile
-  if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
-    echo "ERROR: The given S3 backup bucket '$BACKUP_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
-  else
-    echoS "    Backup bucket exists."
-  fi
-  # Checking write permission on bucket
-  TEST_FILE="AWS_dist_configure_write_access_test.file"
-  echo "Write TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE
-  if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'error' ; then
-    echo "Bucket write test has failed. Check the permissions of the user!"; exit 1
-  else
-    # Clean up bucket file
-    aws s3 rm s3://$BACKUP_BUCKET/$TEST_FILE --profile $PROFILE > /dev/null 2>&1
-    # We need to check, whether the bucket is free of files (it can mess up the bucket otherwise)
-    BUCKET_CONTENT=`aws s3 ls --profile $PROFILE s3://$BACKUP_BUCKET | grep -v "/"`
-    if [ -n "$BUCKET_CONTENT" ]; then
-      echo "ERROR: Bucket is not empty! Only an empty bucket can be used for backup location."; exit 1
+
+
+  # If in write mode, then perform some tests
+  if [ "$CONFIG_WRITE_MODE" = true ] ; then
+    # Checking whether the bucket exists on S3 and reachable with the given profile
+    if aws s3 ls $UPLOAD_BUCKET --profile $IDENTITY  2>&1 | grep -q 'NoSuchBucket' ; then
+      echo "ERROR: The given S3 bucket '$UPLOAD_BUCKET' does not exists or not reachable with the credentials set in the profile '$IDENTITY' !"; exit 1
+    else
+      echoS "    Bucket exists."
     fi
-    echoS "    Backup bucket is verified."
+    # Checking write permission on bucket
+    TEST_FILE="AWS_dist_configure_write_access_test.file"
+    echo "AWS distribution write access TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE 
+    if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$UPLOAD_BUCKET --profile $IDENTITY  2>&1 | grep -q 'error' ; then
+      echo "ERROR: Bucket write test has failed. Check the permissions of the user!"; exit 1
+    else
+      # Clean up backup file
+      aws s3 rm s3://$UPLOAD_BUCKET/$TEST_FILE --profile $IDENTITY > /dev/null 2>&1
+      echoS "    Bucket is verified."
+    fi
+    # Clean up local file
+    rm $BASE_DIR/$TEST_FILE
+  fi  # testing if in write mode
+
+  # If backup bucket is set or given as a param, check and set it too
+  if [ "$CONFIG_WRITE_MODE" != true ] && [ -z BACKUP_BUCKET ] ; then
+    BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
   fi
-  # Clean up local file
-  rm $BASE_DIR/$TEST_FILE
-else
-  if [ "$CONFIG_WRITE_MODE" = true  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
-    echoS "  Backup is switched OFF."
+  if [ -z "$YES" ] || [ -z "$DEFAULT_BACKUP_BUCKET" ]; then
+    if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$BACKUP_BUCKET" ]; then
+      if [ -n "$DEFAULT_BACKUP_BUCKET" ]; then
+        read -p "Backup bucket name [$DEFAULT_BACKUP_BUCKET] or use 'off' for none: " BACKUP_BUCKET
+      else
+        read -p "Backup bucket name: " BACKUP_BUCKET
+      fi
+    fi
   fi
-fi
+  if [ -z "$BACKUP_BUCKET" ]; then
+    BACKUP_BUCKET=$DEFAULT_BACKUP_BUCKET
+  fi
+  # If not switched off  and its name differs from main bucket, check it (if in write mode)
+  if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$UPLOAD_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ "$CONFIG_WRITE_MODE" = true ] ; then
+    # Checking the given bucket name format
+    if [[ "$BACKUP_BUCKET" =~ ^[a-z][a-z0-9\-]+[a-z0-9]+$ ]]; then
+      echoS "  Using S3 bucket for backup: $BACKUP_BUCKET"
+    else
+      echo "ERROR: Invalid backup bucket name ($BACKUP_BUCKET)!"; exit 1;
+    fi
+    # Checking whether the bucket exists on S3 and reachable with the given profile
+    if aws s3 ls $BACKUP_BUCKET --profile $IDENTITY  2>&1 | grep -q 'NoSuchBucket' ; then
+      echo "ERROR: The given S3 backup bucket '$BACKUP_BUCKET' does not exists or not reachable with the credentials set in the profile '$IDENTITY' !"; exit 1
+    else
+      echoS "    Backup bucket exists."
+    fi
+    # Checking write permission on bucket
+    TEST_FILE="AWS_dist_configure_write_access_test.file"
+    echo "Write TEST FILE - If you read this, you can delete this file any time." > $BASE_DIR/$TEST_FILE
+    if aws s3 cp $BASE_DIR/$TEST_FILE  s3://$BACKUP_BUCKET --profile $IDENTITY  2>&1 | grep -q 'error' ; then
+      echo "Bucket write test has failed. Check the permissions of the user!"; exit 1
+    else
+      # Clean up bucket file
+      aws s3 rm s3://$BACKUP_BUCKET/$TEST_FILE --profile $IDENTITY > /dev/null 2>&1
+      # We need to check, whether the bucket is free of files (it can mess up the bucket otherwise)
+      BUCKET_CONTENT=`aws s3 ls --profile $IDENTITY s3://$BACKUP_BUCKET | grep -v "/"`
+      if [ -n "$BUCKET_CONTENT" ]; then
+        echo "ERROR: Bucket is not empty! Only an empty bucket can be used for backup location."; exit 1
+      fi
+      echoS "    Backup bucket is verified."
+    fi
+    # Clean up local file
+    rm $BASE_DIR/$TEST_FILE
+  else
+    if [ "$CONFIG_WRITE_MODE" = true  ] && [ "$BACKUP_BUCKET" == "off" ] ; then
+      echoS "  Backup is switched OFF."
+    fi
+  fi
+fi  # AWS TESTS
+
 
 # Setting the branch if it is not set already (and backup is not set to 'off')
   if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$BRANCH_FOLDER" ]; then
@@ -395,20 +480,27 @@ if [ "$ROLLBACK" != true ]; then
   # If in write mode, then writing out the configuration
   if [ "$CONFIG_WRITE_MODE" = true ] ; then
     echo "" > "$CONFIG_FILE"    # first emptying the file
-    echo "AWS_PROFILE=$PROFILE" >> $CONFIG_FILE
+    echo "TARGET_MODE=$TARGET_MODE" >> $CONFIG_FILE
+    echo "IDENTITY=$IDENTITY" >> $CONFIG_FILE
+    if [ "$TARGET_MODE" == "ssh" ] &&  [ -n "$ACCESS_KEY" ] && [ -n "$SECRET_KEY"  ]; then
+      LOGIN=$ACCESS_KEY
+      PASSWD=$SECRET_KEY
+    fi
+    echo "ACCESS_NAME=$LOGIN" >> $CONFIG_FILE
+    echo "SECRET_PASSWORD=$PASSWD" >> $CONFIG_FILE
     echo "DIST_DIR=$DIST_DIR" >> $CONFIG_FILE
-    echo "S3_BUCKET=$S3_BUCKET" >> $CONFIG_FILE
+    echo "UPLOAD_BUCKET=$UPLOAD_BUCKET" >> $CONFIG_FILE
     echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $CONFIG_FILE
     echo "BRANCH=$BRANCH_FOLDER" >> $CONFIG_FILE
     echo "VERSION_LIMIT=$VERSION_LIMIT" >> $CONFIG_FILE
     # Adding the config file to .gitignore
-    if [ "$GITIGNORE" == "true" ]; then
+    if [ "$GITIGNORE" = true ]; then
       if [ -f $BASE_DIR/.gitignore ]; then
         if grep -q *.$CONFIG_FILE_TYPE $BASE_DIR/.gitignore 2>&1 ; then
           :
         else
           echo "" >> $BASE_DIR/.gitignore
-          echo "# distribution config file" >> $BASE_DIR/.gitignore
+          echo "# dist-upload config file" >> $BASE_DIR/.gitignore
           echo "*.$CONFIG_FILE_TYPE"  >> $BASE_DIR/.gitignore
           echo "" >> $BASE_DIR/.gitignore
           echo "The config file type is added to the .gitignore file."
@@ -437,8 +529,8 @@ fi # not ROLLBACK and not WRITE mode
 # SYNC SECTION *********************************************************************************
 
 # Checking whether the bucket exists on S3 and reachable with the given profile
-if aws s3 ls $S3_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
-  echo "ERROR: The given S3 bucket ($S3_BUCKET) does not exists or not reachable with the credentials set in the profile '$PROFILE!'"; exit 1
+if aws s3 ls $UPLOAD_BUCKET --profile $IDENTITY  2>&1 | grep -q 'NoSuchBucket' ; then
+  echo "ERROR: The given S3 bucket ($UPLOAD_BUCKET) does not exists or not reachable with the credentials set in the profile '$IDENTITY!'"; exit 1
 else
   if [ ! "$LIST_MODE" = true ]; then
     if [ ! "$ROLLBACK" = true ]; then
@@ -464,11 +556,11 @@ fi
 # If it is not switched off, start the process of backup
 if [ "$BACKUP_BUCKET" != "off" ] ; then
     # Check whether the backup bucket exists
-    if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
-      echo "ERROR: The given backup bucket ($BACKUP_BUCKET) does not exists or not reachable with the credentials set in the profile '$PROFILE!'"; exit 1
+    if aws s3 ls $BACKUP_BUCKET --profile $IDENTITY  2>&1 | grep -q 'NoSuchBucket' ; then
+      echo "ERROR: The given backup bucket ($BACKUP_BUCKET) does not exists or not reachable with the credentials set in the profile '$IDENTITY!'"; exit 1
     fi
     # Reading in existing release names
-    VERSIONS=`aws s3 ls --profile $PROFILE s3://$BACKUP_BUCKET/$BRANCH_FOLDER/  | cut -c32- | grep / | tr -s '\n' ' '`
+    VERSIONS=`aws s3 ls --profile $IDENTITY s3://$BACKUP_BUCKET/$BRANCH_FOLDER/  | cut -c32- | grep / | tr -s '\n' ' '`
     VERSION_COUNT=0
     # If there are any versions, count them
     if [ -n "$VERSIONS" ]; then
@@ -524,7 +616,7 @@ if [ "$BACKUP_BUCKET" != "off" ] ; then
             for DEL in $TO_DELETE
             do
               echoS "      Deleting : `echo $DEL | sed 's/.$//'`"
-              aws s3 rm s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$DEL --recursive  --profile $PROFILE 2>&1  > /dev/null
+              aws s3 rm s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$DEL --recursive  --profile $IDENTITY 2>&1  > /dev/null
             done
           fi
         fi
@@ -543,7 +635,7 @@ if [ "$BACKUP_BUCKET" != "off" ] ; then
         RELEASE_VERSION="$BRANCH_FOLDER/$VERSION"
       fi
       echoS "    Creating release version: $RELEASE_VERSION"
-      if aws s3 sync $DIST_DIR s3://$BACKUP_BUCKET/$RELEASE_VERSION/  --delete  --profile $PROFILE  --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error" ; then
+      if aws s3 sync $DIST_DIR s3://$BACKUP_BUCKET/$RELEASE_VERSION/  --delete  --profile $IDENTITY  --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error" ; then
         echo "ERROR: Backup error: copy from dist folder to backup bucket has failed."; exit 1
       fi
     else    #ROLLBACK mode
@@ -567,12 +659,12 @@ if [ "$BACKUP_BUCKET" != "off" ] ; then
         echo "ERROR: No version is available to recover."; exit 1
       fi
       echoS "  Deleting the last version  : `echo $VERS_DELETE | sed 's/.$//'`"
-      aws s3 rm s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$VERS_DELETE --recursive  --profile $PROFILE 2>&1  > /dev/null
+      aws s3 rm s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$VERS_DELETE --recursive  --profile $IDENTITY 2>&1  > /dev/null
       echoS "  Recovering previous version: `echo $VERS_RECOVER | sed 's/.$//'`"
-      if aws s3 rm s3://$S3_BUCKET/ --recursive --profile $PROFILE 2>&1 > /dev/null | grep -q "error"; then
+      if aws s3 rm s3://$UPLOAD_BUCKET/ --recursive --profile $IDENTITY 2>&1 > /dev/null | grep -q "error"; then
         $REC_ERROR="Recovery ERROR: Delete bucket content error.";
       fi
-      if aws s3 cp s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$VERS_RECOVER s3://$S3_BUCKET/  --recursive  --profile $PROFILE  2>&1 > /dev/null | grep -q "error"; then
+      if aws s3 cp s3://$BACKUP_BUCKET/$BRANCH_FOLDER/$VERS_RECOVER s3://$UPLOAD_BUCKET/  --recursive  --profile $IDENTITY  2>&1 > /dev/null | grep -q "error"; then
         $REC_ERROR="Recovery ERROR: Recovery sync error."
       fi
       if [ -n "$REC_ERROR" ]; then
@@ -602,20 +694,20 @@ fi # backup == off
 
 
 # Getting the region from the profile
-AWS_REGION=`aws configure get region --profile $PROFILE`
+AWS_REGION=`aws configure get region --profile $IDENTITY`
 
-echoS "Syncing $DIST_DIR -> S3://$S3_BUCKET"
+echoS "Syncing $DIST_DIR -> S3://$UPLOAD_BUCKET"
 
 
 # Sync the dist files to S3
-if [ "$BACKUP_BUCKET" == "off" ] || [ "$BACKUP_BUCKET" != "$S3_BUCKET"  ]; then
-  if aws s3 sync $DIST_DIR s3://$S3_BUCKET --profile $PROFILE --delete --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error"; then
+if [ "$BACKUP_BUCKET" == "off" ] || [ "$BACKUP_BUCKET" != "$UPLOAD_BUCKET"  ]; then
+  if aws s3 sync $DIST_DIR s3://$UPLOAD_BUCKET --profile $IDENTITY --delete --acl public-read --content-type text/html  2>&1 > /dev/null | grep -q "error"; then
     SYNC_ERROR="ERROR: Uploading to bucket has failed."
   fi
 else
-  if [ "$BACKUP_BUCKET" == "$S3_BUCKET" ]; then
+  if [ "$BACKUP_BUCKET" == "$UPLOAD_BUCKET" ]; then
     INDEX_HTML='<html><head><meta http-equiv="Refresh" content="1; URL=./'$RELEASE_VERSION'/index.html"></head></html>'
-    echo $INDEX_HTML | aws s3 cp - s3://$S3_BUCKET/index.html --profile $PROFILE --acl public-read --content-type text/html
+    echo $INDEX_HTML | aws s3 cp - s3://$UPLOAD_BUCKET/index.html --profile $IDENTITY --acl public-read --content-type text/html
   fi
 fi
 if [ -n "$SYNC_ERROR" ]; then
@@ -632,7 +724,7 @@ else
   echoS "•                                                      •"
   echoS "••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
   echoS ""
-  echoS "Site URL: http://${S3_BUCKET}.s3-website.${AWS_REGION}.amazonaws.com"
+  echoS "Site URL: http://${UPLOAD_BUCKET}.s3-website.${AWS_REGION}.amazonaws.com"
   echo ""
   if [ "$SILENT_MODE" = true ]; then
     echo "Dist upload successful."

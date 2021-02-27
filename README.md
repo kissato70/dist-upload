@@ -6,20 +6,21 @@
 
 <br>
 
-**`Syntax:`** &nbsp;  `dist-upload` &nbsp;  [optional params]
+**`Syntax:`** &nbsp;  `dist-upload` &nbsp; [mode] &nbsp; [params]
 
 | option | argument | description |
 |------------ | ------ | ------------ |
+| mode |  aws \| ssh  |        Target mode. If you omit this, it is taken from the config file. |
 |  -c  |  configFile  |        The name of the config file to save (-w) or use. [aws.distconfig] |
 |   -w |     |                    Config file write mode, for creating configuration(s).|
-|   -p |   profileName  |       Sets the AWS profile name. [default]|
+|   -i |   identity |       Sets the AWS profile name [default] or the SSH identity file (.pem) with full path.|
 |   -r |   regionName  |        Sets the AWS region name for the profile. [us-east-1]|
-|   -a |   accessKey  |         Sets the AWS IAM user's access_key for the profile.|
-|   -s |   secretKey   |        Sets the AWS IAM user's secret_access_key for the profile.|
-|   -g |  true \| [false]  |       Should the name of the config file be added to .gitignore file.|
+|   -a |   accessName  |         Sets the AWS IAM user's access_key for the profile or the login name for SSH.|
+|   -s |   secretPassword   |        Sets the AWS IAM user's secret_access_key for the profile or the password for SSH.|
+|   -g |  [true] \| false  |       Should the name of the config file be added to .gitignore file.|
 |   -d |   distDirectory |      Sets the distribution directory. [dist]|
 |   -b |   bucketName |       Sets the AWS S3 bucket name in config.|
-|   -i |   bucketName \| off |     Sets the AWS S3 bucket name for incremental release backup in config.|
+|   -B |   bucketName \| off |     Sets the AWS S3 bucket name for incremental release backup in config.|
 |   -R   |       |                Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.|
 |   -m  |  versionLimit  |      The maximum number of versions kept in the bucket. Older will be deleted.|
 |   -f |   branchFolder  |      The folder for automated version storage. You can store different branches this way.|
