@@ -1,0 +1,17 @@
+{
+  "name": "dist-upload",
+  "version": "1.1.2",
+  "description": "## Script for AWS S3 bucket upload from the distribution folder (linux version)",
+  "bin": { "dist-upload": "./dist-upload" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kissato70/dist-upload.git"
+  },
+  "keywords": ["AWS", "S3", "upload"],
+  "author": "Attila Kiss",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kissato70/dist-upload/issues"
+  },
+  "homepage": "https://github.com/kissato70/dist-upload#readme"
+}

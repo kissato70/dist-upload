@@ -79,3 +79,7 @@ dist-upload -c stage
 >Written by: __Attila Kiss__, [e-LET Kft](https://e-let.hu), Hungary  ( GitHub: [kissato70](https://github.com/kissato70) )
 
  > Licence:  MIT
+
+<br>
+
+> **Buy me a beer (Donation):** http://bit.ly/kissato70_donate
