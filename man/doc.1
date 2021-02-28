@@ -1,6 +1,6 @@
 Script for AWS S3 bucket upload from the distribution folder
 
-  Command:  dist-upload [params]
+  Command:  dist-upload-s3 [params]
 
   Optional params:
    -c    configFile)          The name of the config file to save (-w) or use. [aws.distconfig]
@@ -23,35 +23,35 @@ Script for AWS S3 bucket upload from the distribution folder
 Examples
 --------
 To configure the system, as the first step:
-  dist-upload -w
+  dist-upload-s3 -w
 The script will ask all the setup parameters and save it to the default config file.
 
 Creating a special config file (for example for staging):
-  dist-upload -c myTestConfig -w
+  dist-upload-s3 -c myTestConfig -w
 This will create a config file 'myTestconfig', which can be used for alternative uploads.
 
 Sending this complete startup setup along with the webpack config to the team:
-  dist-upload -w -d dist  -b ourProdBucket -i ourProdBackup -m 5
-  dist-upload -w -d build -b ourTestBucket -i off -c stage
+  dist-upload-s3 -w -d dist  -b ourProdBucket -i ourProdBackup -m 5
+  dist-upload-s3 -w -d build -b ourTestBucket -i off -c stage
 The script will ask for the personal AWS access keys.
-Hint: Place the above into the package.json under the 'scripts' like this: "init" : "dist-upload -w dist ..."
+Hint: Place the above into the package.json under the 'scripts' like this: "init" : "dist-upload-s3 -w dist ..."
 
 Updating the config file, changing ONLY the given params
 (In this example switching off the backup and changing the region):
-  dist-upload -c myConfig -w -y -i off -r eu-west-1
+  dist-upload-s3 -c myConfig -w -y -i off -r eu-west-1
  
 Uploading the folder 'test_build' (other than the folder set in config) in silent mode, while using the branch name 'stage':
-  dist-upload -d test_build -S -f stage
+  dist-upload-s3 -d test_build -S -f stage
  
 Listing the backup folder content, but only the last 3 versions:
-  dist-upload -l 3
+  dist-upload-s3 -l 3
  
 Uploading the dist folder (as set in the config) by leaving only 5 older versions alive, without status messages:
-  dist-upload -m 5 -S
+  dist-upload-s3 -m 5 -S
 Any older versions above the number, will be deleted.
 
 Uploading to the previously configured staging area:
-  dist-upload -c stage
+  dist-upload-s3 -c stage
 
 
 Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
