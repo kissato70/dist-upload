@@ -28,7 +28,7 @@
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.3"
+VERSION="1.1.4"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
@@ -158,8 +158,14 @@ if [ -f "$CONFIG_FILE" ]; then
   done < "$CONFIG_FILE"
 else
   if [ "$CONFIG_WRITE_MODE" != true ]; then
-    echo "ERROR: Config file ($CONFIG_FILE_NAME) not found!"
-    echo "Hint: Create a config file as the first step using  dist-upload-s3 -w"; exit 1
+    echo "Config file ($CONFIG_FILE_NAME) not found!"
+    echo "Hint: You can create a config file as the first step using  dist-upload-s3 -w";
+    read -p "Config file name to create [$CONFIG_FILE_NAME_DEFAULT] : " CONFIG_FILE_NAME
+    if [ -z "$CONFIG_FILE_NAME" ]; then
+      CONFIG_FILE_NAME=$CONFIG_FILE_NAME_DEFAULT
+    fi
+    CONFIG_FILE="$CONFIG_FILE_DIR/$CONFIG_FILE_NAME.$CONFIG_FILE_TYPE"
+    CONFIG_WRITE_MODE=true 
   fi
 fi
 
@@ -178,7 +184,7 @@ if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$PROFILE" ]; then
   PROFILE=$DEFAULT_PROFILE
 fi
 if [ "$CONFIG_WRITE_MODE" = true ] && [ -z "$PROFILE" ] && [ -z "$YES" ]; then
-  read -p "AWS profile name [$DEFAULT_PROFILE]:" PROFILE
+  read -p "AWS profile name [$DEFAULT_PROFILE]: " PROFILE
 fi
 if [ -z "$PROFILE" ]; then
   PROFILE=$DEFAULT_PROFILE
@@ -305,7 +311,7 @@ if [ -z "$YES" ] || [ -z "$DEFAULT_BACKUP_BUCKET" ]; then
     if [ -n "$DEFAULT_BACKUP_BUCKET" ]; then
       read -p "Backup bucket name [$DEFAULT_BACKUP_BUCKET] or use 'off' for none: " BACKUP_BUCKET
     else
-      read -p "Backup bucket name: " BACKUP_BUCKET
+      read -p "Backup bucket name (use 'off' for none): " BACKUP_BUCKET
     fi
   fi
 fi
@@ -427,7 +433,7 @@ if [ "$ROLLBACK" != true ]; then
     echoS ""
     echo  "- Config file saved. -"
     echoS ""
-    echoS "For uploading your site, you can use now the command:  dist-upload$CCONFIG"
+    echoS "For uploading your site, you can use now the command:  dist-upload-s3$CCONFIG"
     echoS ""
     exit 0
   fi
