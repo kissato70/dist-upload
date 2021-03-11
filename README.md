@@ -2,7 +2,7 @@
 
 ## Script for AWS S3 bucket upload from the distribution folder (linux version)
 
-### Latest stable version: __1.1.3__
+### Latest stable version: __1.1.x__
 
 <br>
 
