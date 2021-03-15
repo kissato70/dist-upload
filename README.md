@@ -2,7 +2,6 @@
 
 ## Script for AWS S3 bucket upload from the distribution folder (linux version)
 
-### Latest stable version: __1.1.x__
 
 <br>
 
@@ -80,6 +79,8 @@ dist-upload-s3 -c stage
 
  > Licence:  MIT
 
+> Report issues [here](https://github.com/kissato70/dist-upload-s3/issues).
+
 <br>
 
-> **Buy me a beer (Donation):** http://bit.ly/kissato70_donate
+> **Buy me a beer (Donation):** https://bit.ly/kissato70_paypal_donate
