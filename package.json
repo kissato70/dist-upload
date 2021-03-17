@@ -1,6 +1,6 @@
 {
   "name": "dist-upload-s3",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Shell script for AWS S3 bucket upload from the distribution folder (linux version)",
   "bin": { "dist-upload-s3": "./dist-upload-s3" },
   "man": "./man/doc.1",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/kissato70/dist-upload-s3.git"
   },
-  "keywords": ["AWS", "S3", "bucket", "upload", "linux", "distribute", "branch", "versioning", "static", "synch"],
+  "keywords": ["AWS", "S3", "bucket", "upload", "linux", "distribute", "branch", "versioning", "static", "sync"],
   "author": "Attila Kiss",
   "license": "MIT",
   "bugs": {

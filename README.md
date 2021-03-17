@@ -113,7 +113,7 @@ ___
 <br>  
 
 ## Buy me a beer >>> [Donation](https://bit.ly/kissato70_paypal_donate)  
-_Please support the further releases (I have no proper job right now), if you like this script! **Thank you!**_
+_Please support the further releases, if you like this script! **Thank you!**_
 ## Future enhancement plans:
 - Do not store but ask for password
 - Same functionality for linux servers, using rsync
