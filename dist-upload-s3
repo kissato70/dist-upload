@@ -25,11 +25,13 @@
 #
 #  Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
 #  Licence:  MIT
-#  Buy me a beer (Donation): https://bit.ly/kissato70_paypal_donate
+#  Documentation: https://github.com/kissato70/dist-upload-s3/blob/main/README.md
+#
+#  Buy me a beer please (Donation): https://bit.ly/kissato70_paypal_donate
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.5"
+VERSION="1.1.6"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
