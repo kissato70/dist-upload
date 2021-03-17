@@ -7,6 +7,9 @@ ___
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  npm &nbsp;install -g dist-upload-s3  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  yarn &nbsp;add global dist-upload-s3
+
+**`Required other installation:`**  &nbsp; AWS Command Line Interface  2  
+Please find the setup instructions [here](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html).
 ___
 Using this script you can upload a folder of your project to an Amazaon S3 bucket, store a copy of this release into an other (backup) bucket with rollback ability, where you can set the maximum number of previous releases stored. The releases can be kept in subfolders (branches), which makes it possible to use only one central backup S3 bucket for all your different projects, you can setup your projects to use different branches. Using a backup bucket is optional. 
 
@@ -45,11 +48,11 @@ ___
 
 &nbsp;
 ## `Examples`
-**To configure the system, as the first step:**
+**To configure the system, as the FIRST STEP:**
 ```script
 dist-upload-s3 -w
 ```
-_The script will ask for all the setup parameters and save it to the default config file._  
+_The script will ask for all the setup parameters and save it to the default config file._
 <br><br>
 **Creating a special config file (for example for staging):**
 ```script
@@ -61,7 +64,7 @@ _This will create a config file 'myTestconfig', which can be used for alternativ
 ```bash
 dist-upload-s3 -c otherConfig
 ```
-_The config file 'otherConfig' is used, which can have different settings, like other bucket, other dist folder, any other setup params, you just like._  
+_The config file 'otherConfig' is used, which can have different settings, like other bucket, other dist folder, any other setup params, you just like._
 <br/><br/>
 **Sending this complete startup setup along with the project to the team:**
 ```bash
@@ -78,23 +81,20 @@ dist-upload-s3 -c myConfig -w -y -i off -r eu-west-1
 ```  
 _In the above example we switch off the backup and changing the region in the config setup 'myConfig'._  
 Without the -y flag, the script would ask for all the params, by offering the previously set values.
-
-&nbsp;<br>
-
+&nbsp;<br><br>
 **Uploading the folder 'test_build' to the 'stageBucket' in silent mode, while using the branch folder name 'stage':**
 ```bash
 dist-upload-s3 -d test_build -S -b stageBucket -f stage
 ```    
 _Please note: All other config parameters are taken from the default config file. There is no need to use an other backup bucket by using a different branch (folder)._  
-_Hint: You can place all these parameters into a separate config file too._  
+_Hint: You can place all these parameters into a separate config file too._
 <br/><br/>
 **Listing the backup folder content, but only the last 3 versions:**
 ```bash
 dist-upload-s3 -l 3
 ```  
 _You could use the -f flag for listing an other branch (folder)._
-&nbsp;<br/><br/>  
-
+&nbsp;<br/><br/>
 **Uploading the dist folder (as set in the default config) by leaving only 5 older versions alive, showing no status messages(silent mode):**
 ```bash
 dist-upload-s3 -m 5 -S

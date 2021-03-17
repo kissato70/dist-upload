@@ -31,7 +31,7 @@
 # **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.7"
+VERSION="1.1.8"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
