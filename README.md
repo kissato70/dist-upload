@@ -1,8 +1,7 @@
 # dist-upload-s3
 
-## Script for AWS S3 bucket upload from the distribution folder (linux version)
+## Script for AWS S3 bucket upload from the distribution folder (linux version)   
 
-___
 **`Installation:`**   
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  npm &nbsp;install -g dist-upload-s3  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or  
@@ -19,7 +18,7 @@ Rollback is replacing (restoring) the main bucket's content with the last previo
 ___
 __`WARNING`:__ Be aware of keeping your config file away of your public Git repository and never publish it with your files! It doesn't contain your Amazon password, but the names of your buckets, which are public readable (and if you not set up it's access policy correctly, even publicly writeable)!!! So, make sure, your .gitignore file contains the name of the config file, even so the backup bucket is hidden from the public by having no public access, and the main bucket (used for static website hosting) is not writeable, by limiting the write access for your AWS role only.  
 
-__The script is not sending out any of your passwords or sensitive data, storing everything locally.__
+__The script is not sending out any of your passwords or sensitive data, storing everything locally in your root folder.__
 
 ___
 
@@ -45,6 +44,7 @@ ___
 |   -l |   tailNumber  |        Lists [optionaly the last n number of] the release versions in the incremental backup bucket.|
 |   -y   | |                       Answers default option to the config questions. Hint: use for changing only the given params.|
 |   -S  | |                        Silent mode. Hides all the information about the process.|
+|   -h  | | Display help.|
 
 &nbsp;
 ## `Examples`
@@ -54,7 +54,7 @@ dist-upload-s3 -w
 ```
 _The script will ask for all the setup parameters and save it to the default config file._
 <br><br>
-**Creating a special config file (for example for staging):**
+**Creating a special config file (other than default):**
 ```script
 dist-upload-s3 -c myTestConfig -w
 ```
@@ -75,7 +75,7 @@ _The script will ask for the personal AWS access keys._<br>
 _Hint: Place the above into the package.json under the 'scripts' like this:  
    `"start:init" : "dist-upload-s3 -w -d dist ..."`_
 <br><br>
-**Updating the config file, by changing ONLY the given params**<br>
+**Updating the config file, by changing ONLY the given params:**<br>
 ```script
 dist-upload-s3 -c myConfig -w -y -i off -r eu-west-1
 ```  
@@ -112,10 +112,11 @@ ___
 
 <br>  
 
-## Buy me a beer >>> [Donation](https://bit.ly/kissato70_paypal_donate)  
-_Please support the further releases, if you like this script! **Thank you!**_
+## Support the project >>> [Donation](https://bit.ly/kissato70_paypal_donate)  
+_Please support the further releases, if you like this script! **Thank you!**_  
+<br/>
 ## Future enhancement plans:
-- Do not store but ask for password
+- Do not store your password, ask for it at runtime
 - Same functionality for linux servers, using rsync
 - Merging config files
 - Notification sending to team members, if an upload is done

@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# **************************************************************************************************************************
+### **************************************************************************************************************************
 #  Script for AWS S3 bucket upload from the distribution folder
 #
-#  Command:  dist-upload [params]
+#  Command:  dist-upload-s3 [params]
 #
 #  Optional params:
 #   -c    configFile)          The name of the config file to save (-w) or use. [aws.distconfig]
@@ -16,22 +16,50 @@
 #   -d    distDirectory       Sets the distribution directory. [dist]
 #   -b    bucketName          Sets the AWS S3 bucket name in config.
 #   -i    bucketName|off      Sets the AWS S3 bucket name for incremental release backup in config.
-#   -R                          Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
+#   -R                        Rollback (undo) release: Rolls back the code to previsous state, deleting the last release.
 #   -m    versionLimit        The maximum number of versions kept in the bucket. Older will be deleted.
 #   -f    branchFolder        The folder for automated version storage. You can store different branches this way.
-#   -l    [tailNumber]          Lists [the last n number of] the release versions in the incremental backup bucket.
-#   -y                          Answers default option to the config questions. Hint: use for changing only the given params.
-#   -S                          Silent mode. Hides all the information about the process.
+#   -l    [tailNumber]        Lists [the last n number of] the release versions in the incremental backup bucket.
+#   -y                        Answers default option to the config questions. Hint: use for changing only the given params.
+#   -S                        Silent mode. Hides all the information about the process.
+#   -h                        Display help
+#
+#   EXAMPLES:
+#   ---------
+#   To configure the system, as the FIRST STEP:
+#       dist-upload-s3 -w
+#
+#   Creating a special config file (other than default):
+#       dist-upload-s3 -c myTestConfig -w
+#   
+#   Uploading using a previously configured other config:
+#       dist-upload-s3 -c otherConfig
+#
+#   Sending this complete startup setup along with the project to the team:
+#       dist-upload-s3 -w -d dist  -b ourProdBucket -i ourProdBackup -m 5
+#       dist-upload-s3 -w -d build -b ourTestBucket -i off -c stage
+#
+#   Updating the config file, by changing ONLY the given params:
+#       dist-upload-s3 -c myConfig -w -y -i off -r eu-west-1
+#
+#   Uploading the folder 'test_build' to the 'stageBucket' in silent mode, while using the branch folder name 'stage':
+#       dist-upload-s3 -d test_build -S -b stageBucket -f stage
+#
+#   Listing the backup folder content, but only the last 3 versions:
+#       dist-upload-s3 -l 3
+#
+#   Uploading the dist folder (as set in the default config) by leaving only 5 older versions alive, showing no status messages(silent mode):
+#       dist-upload-s3 -m 5 -S
 #
 #  Written by: Attila Kiss, e-LET Kft, Hungary  ( GitHub: kissato70 )
 #  Licence:  MIT
 #  Documentation: https://github.com/kissato70/dist-upload-s3/blob/main/README.md
 #
-#  Buy me a beer please (Donation): https://bit.ly/kissato70_paypal_donate
-# **************************************************************************************************************************
+#  Support the project (Donation): https://bit.ly/kissato70_paypal_donate
+### **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.8"
+VERSION="1.1.9"
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
 CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
@@ -56,7 +84,7 @@ DEFAULT_PROFILE="default"
 DEFAULT_BUCKET=""
 
 # Reading out the optional flags
-while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:RS" flag
+while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:RSh" flag
 do
     case "${flag}" in
         c)  CONFIG_FILE_NAME=$OPTARG;;
@@ -87,20 +115,37 @@ do
         S)  SILENT_MODE=true;;
         R)  ROLLBACK=true;;
         y)  YES="true";;
+        h)  HELP="true";;
         :)  case "$OPTARG" in
               i) BACKUP_BUCKET="off";;
               l) LIST_MODE=true
                   OPTIND=$((OPTIND - 1));;
               R) ROLLBACK=true;;
               S) SILENT_MODE=true;
-              OPTIND=$((OPTIND - 1))
+                  OPTIND=$((OPTIND - 1));;
+              :) HELP="true";;
             esac ;;
+        *)  echo "ERROR: Invalid command flag."
+            HELP=true;;    
     esac
 done
 
 echoS "---------------------------------------------------------------------"
 echoS "|                      S3 upload-dist $VERSION                         |"
 echoS "---------------------------------------------------------------------"
+
+# Help command
+if [ "$HELP" = true ]; then
+  DIRNAME=`dirname "$0"`
+  SCRIPTNAME=`basename "$0"`
+  STARTROW=`grep -n '###' ./dist-upload-s3 | head -n 1 | cut -d: -f 1`
+  STARTROW="$((STARTROW+1))"
+  ENDROW=`grep -m2 -n '###' ./dist-upload-s3 | tail -n 1 | cut -d: -f 1`
+  ENDROW="$((ENDROW-1))"
+  echo "Command help:"
+  tail -n "+$STARTROW" $DIRNAME/$SCRIPTNAME | head -n "$((ENDROW-STARTROW+1))"
+  exit 0;
+fi
 
 # Check if aws-cli is installed
 if command -v aws 2>&1 | grep -q 'aws' ; then
