@@ -1,4 +1,5 @@
 *.dist.config
 dist
+yarn.lock
 
 node_modules/

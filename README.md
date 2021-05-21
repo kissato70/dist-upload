@@ -8,13 +8,15 @@
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  yarn &nbsp;add global dist-upload-s3
 
 **`Required other installation:`**  &nbsp; AWS Command Line Interface  2  
-Please find the setup instructions [here](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html).
+ Please find the setup instructions [here](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html).  
+ AWS IAM policies required: S3 / List, Read, Write
 ___
 Using this script you can upload a folder of your project to an Amazaon S3 bucket, store a copy of this release into an other (backup) bucket with rollback ability, where you can set the maximum number of previous releases stored. The releases can be kept in subfolders (branches), which makes it possible to use only one central backup S3 bucket for all your different projects, you can setup your projects to use different branches. Using a backup bucket is optional. 
 
 The parameters can be stored in configuration files, different config files can be used for different purposes. It is not obligatory to use a config file, you can run the command directly with inline parameters too. If a config file is present and you define inline parameters, the params will be merged so, that the inline parameters have the priority. In 'config file write mode' (-w) the inline params will overwrite the params stored in the config file.  
 
-Rollback is replacing (restoring) the main bucket's content with the last previous version. During the rollback, the release is taken off the backup bucket stack (LIFO rules). If you limit the number of release versions, the oldest version is removed above the limit (FIFO). 
+Rollback is replacing (restoring) the main bucket's content with the last previous version. During the rollback, the release is taken off the backup bucket stack (LIFO rules). If you limit the number of release versions, the oldest version is removed above the limit (FIFO).  
+
 ___
 __`WARNING`:__ Be aware of keeping your config file away of your public Git repository and never publish it with your files! It doesn't contain your Amazon password, but the names of your buckets, which are public readable (and if you not set up it's access policy correctly, even publicly writeable)!!! So, make sure, your .gitignore file contains the name of the config file, even so the backup bucket is hidden from the public by having no public access, and the main bucket (used for static website hosting) is not writeable, by limiting the write access for your AWS role only.  
 
@@ -42,8 +44,10 @@ ___
 |   -m  |  versionLimit  |      The maximum number of versions kept in the bucket. Older will be deleted.|
 |   -f |   branchFolder  |      The folder for automated version storage. You can store different branches this way.|
 |   -l |   tailNumber  |        Lists [optionaly the last n number of] the release versions in the incremental backup bucket.|
+|  -L  |   logLevel    | [ERR] = only errors, LOG = all events, DEBUG = all response messages. |
 |   -y   | |                       Answers default option to the config questions. Hint: use for changing only the given params.|
 |   -S  | |                        Silent mode. Hides all the information about the process.|
+|  -v   | | Version checking. |
 |   -h  | | Display help.|
 
 &nbsp;
@@ -100,9 +104,15 @@ _You could use the -f flag for listing an other branch (folder)._
 dist-upload-s3 -m 5 -S
 ```
 _Any older versions above the number (in this example: 5), will be deleted._
-<br/><br/>
+
+___  
+
+### `New features in this version`
+- `-L LogLevel` Three levels of log file: ERR | LOG | DEBUG  
+  
+
 ___
-<br/>  
+<br/>
 
 >Written by: __Attila Kiss__, [e-LET Kft](https://e-let.hu), Hungary  ( GitHub: [kissato70](https://github.com/kissato70) )
 
@@ -112,15 +122,13 @@ ___
 
 <br>  
 
-## Support the project >>> [Donation](https://bit.ly/kissato70_paypal_donate)  
+### Support the project >>> [Donation](https://bit.ly/kissato70_paypal_donate)  
 _Please support the further releases, if you like this script! **Thank you!**_  
 <br/>
-## Future enhancement plans:
+### Future enhancement plans:
 - Do not store your password, ask for it at runtime
 - Same functionality for linux servers, using rsync
 - Merging config files
 - Notification sending to team members, if an upload is done
 - Maybe a Node version for the poor Win users...
-<br/><br/>  
 
-_(And ... sorry for my 'Hunglish'...)_

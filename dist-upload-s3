@@ -20,8 +20,10 @@
 #   -m    versionLimit        The maximum number of versions kept in the bucket. Older will be deleted.
 #   -f    branchFolder        The folder for automated version storage. You can store different branches this way.
 #   -l    [tailNumber]        Lists [the last n number of] the release versions in the incremental backup bucket.
+#   -L    logLevel            Log level: [ERR] = only errors, LOG = all events, DEBUG = all response messages.   
 #   -y                        Answers default option to the config questions. Hint: use for changing only the given params.
 #   -S                        Silent mode. Hides all the information about the process.
+#   -v                        Version checking OFF. No version upgrade reminder is shown.
 #   -h                        Display help
 #
 #   EXAMPLES:
@@ -59,11 +61,14 @@
 ### **************************************************************************************************************************
 
 # Setting base variables
-VERSION="1.1.9"
+VERSION="1.1.10"
 BASE_DIR=$(dirname "$0")
-NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_]+[A-Za-z]$" # regexp pattern for name checking
-CONFIG_FILE_NAME_DEFAULT="upload"    # Default name for the config file to save.
-CONFIG_FILE_TYPE="dist.config"             # Config file ending.
+NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_\.]+[A-Za-z0-9]$" # regexp pattern for name checking
+CONFIG_FILE_NAME_DEFAULT="upload"         # Default name for the config file to save.
+CONFIG_FILE_TYPE="dist.config"            # Config file ending.
+LOG_FILE_TYPE="dist.log"                  # Log file ending. Name will be the same as of config file.
+LOG_LEVEL_DEFAULT="ERR"                   # Log level : ERR | LOG | DEBUG
+LOG_HEADER_SET=false                      # Helper value for setting the log header during the first log item write.
 CONFIG_FILE_DIR="."                       # Place the config file in this folder.
 DIST_DIR_DEFAULT="dist"                   # Default value for the folder name to send to S3.
 #DEFAULT_BACKUP_BUCKET="off"              # Backup is switched off as default.
@@ -73,9 +78,30 @@ LIST_MODE=false
 DEFAULT_LIST_TAIL=0
 SILENT_MODE=false;
 
+# Screen echo handler function
 echoS () {
   if [ ! "$SILENT_MODE" = true ] && [ ! "$LIST_MODE" = true  ]; then
     echo "$1"
+  fi
+  if [ -n "$LOG_FILE" ] && [ "$LOG_LEVEL" == "LOG" ] || [ "$LOG_LEVEL" == "DEBUG" ]; then
+    log "$1"
+  fi
+}
+
+# Log file handler function
+log() {
+  if [ ! "$LOG_HEADER_SET" = true  ]; then
+    echo "---------------------------------------------------------------------"    >  $BASE_DIR/$LOG_FILE
+    echo "|                      S3 upload-dist $VERSION                        |"  >> $BASE_DIR/$LOG_FILE
+    echo "|                              LOG FILE                             |"    >> $BASE_DIR/$LOG_FILE
+    echo "---------------------------------------------------------------------"    >> $BASE_DIR/$LOG_FILE
+    echo "Log date: "`date '+%Y-%m-%d_%H:%M:%S'` >> $BASE_DIR/$LOG_FILE
+    echo "Log level: $LOG_LEVEL" >> $BASE_DIR/$LOG_FILE
+    echo "" >> $BASE_DIR/$LOG_FILE
+    LOG_HEADER_SET=true
+  fi
+  if [ -n "$2" ] && [ "$LOG_LEVEL" == $2 ] || [ "$LOG_LEVEL" == "DEBUG"  ]; then
+    echo "$1" >> $BASE_DIR/$LOG_FILE
   fi
 }
 
@@ -84,7 +110,7 @@ DEFAULT_PROFILE="default"
 DEFAULT_BUCKET=""
 
 # Reading out the optional flags
-while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:RSh" flag
+while getopts ":c:wp:d:b:r:a:s:g:yi:m:f:l:L:RSvh" flag
 do
     case "${flag}" in
         c)  CONFIG_FILE_NAME=$OPTARG;;
@@ -112,13 +138,27 @@ do
             fi
             LIST_MODE=true
             ;;
+        L)  if test "$OPTARG" = "$(eval echo '$'$((OPTIND - 1)))"; then
+                OPTIND=$((OPTIND - 1))
+            else
+              case "$OPTARG" in
+                ERR)    LOG_LEVEL=$OPTARG;;
+                LOG)    LOG_LEVEL=$OPTARG;;
+                DEBUG)  LOG_LEVEL=$OPTARG;;
+                :)      LOG_LEVEL="ERR";; 
+              esac
+            fi 
+            ;; 
         S)  SILENT_MODE=true;;
         R)  ROLLBACK=true;;
         y)  YES="true";;
+        v)  VERSIONCHECKOFF="true";;
         h)  HELP="true";;
         :)  case "$OPTARG" in
               i) BACKUP_BUCKET="off";;
               l) LIST_MODE=true
+                  OPTIND=$((OPTIND - 1));;
+              L) LOG_LEVEL="LOG"
                   OPTIND=$((OPTIND - 1));;
               R) ROLLBACK=true;;
               S) SILENT_MODE=true;
@@ -131,8 +171,18 @@ do
 done
 
 echoS "---------------------------------------------------------------------"
-echoS "|                      S3 upload-dist $VERSION                         |"
+echoS "|                      S3 upload-dist $VERSION                        |"
 echoS "---------------------------------------------------------------------"
+
+# Version checking OFF
+if [ ! "$VERSIONCHECKOFF" = true ] && [ ! "$SILENT_MODE" = true ] ; then
+  CURRENT_VERSION=`npm view dist-upload-s3 version`
+  if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+    echo ""
+    echo "*** WARNING: A new version of the script is available at the npm registry -> "$CURRENT_VERSION
+    echo ""
+  fi  
+fi
 
 # Help command
 if [ "$HELP" = true ]; then
@@ -174,6 +224,11 @@ else
     CONFIG_FILE_NAME_DEFAULT=$CONFIG_FILE_NAME
   fi
   echoS "Using config file: $CONFIG_FILE_NAME"
+fi
+# Log file name will be the same as config file name
+LOG_FILE=$CONFIG_FILE_NAME.$LOG_FILE_TYPE
+if [ -z "$LOG_LEVEL" ]; then
+  LOG_LEVEL=$LOG_LEVEL_DEFAULT
 fi
 
 CONFIG_FILE="$CONFIG_FILE_DIR/$CONFIG_FILE_NAME.$CONFIG_FILE_TYPE"
@@ -225,7 +280,12 @@ if [ "$CONFIG_WRITE_MODE" = true ] && [ -f "$CONFIG_FILE" ] ; then
 fi
 if [ "$CONFIG_WRITE_MODE" = true ]; then
   echoS "Writing to config file: $CONFIG_FILE_NAME"
+  LOG_FILE=$CONFIG_FILE_NAME.$LOG_FILE_TYPE
 fi
+echoS "Using log file: $CONFIG_FILE_NAME"
+# if [ ! "$LOG_LEVEL" == "ERR" ]; then
+  echoS "Using log level: $LOG_LEVEL"
+# fi
 
 # If not previously set, ask for which of the AWS (named)profiles to use
 if [ "$CONFIG_WRITE_MODE" != true ] && [ -z "$PROFILE" ]; then
@@ -456,17 +516,19 @@ if [ "$ROLLBACK" != true ]; then
     echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $CONFIG_FILE
     echo "BRANCH=$BRANCH_FOLDER" >> $CONFIG_FILE
     echo "VERSION_LIMIT=$VERSION_LIMIT" >> $CONFIG_FILE
-    # Adding the config file to .gitignore
+    # Adding the config and log file to .gitignore
     if [ "$GITIGNORE" == "true" ]; then
       if [ -f $BASE_DIR/.gitignore ]; then
         if grep -q *.$CONFIG_FILE_TYPE $BASE_DIR/.gitignore 2>&1 ; then
           :
         else
           echo "" >> $BASE_DIR/.gitignore
-          echo "# distribution config file" >> $BASE_DIR/.gitignore
+          echo "# distribution upload config file" >> $BASE_DIR/.gitignore
           echo "*.$CONFIG_FILE_TYPE"  >> $BASE_DIR/.gitignore
+          echo "# distribution upload log file" >> $BASE_DIR/.gitignore
+          echo "*.$LOG_FILE_TYPE"  >> $BASE_DIR/.gitignore
           echo "" >> $BASE_DIR/.gitignore
-          echo "The config file type is added to the .gitignore file."
+          echo "The config and log file type is added to the .gitignore file."
         fi
       else
         echoS "If you will use Git in the future, you may add $CONFIG_FILE_NAME or *.$CONFIG_FILE_TYPE to your .gitignore file."
