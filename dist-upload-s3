@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.1.11"
+VERSION="1.1.12"
 ### **************************************************************************************************************************
 #  Script for AWS S3 bucket upload from the distribution folder
 #
@@ -63,7 +63,7 @@ VERSION="1.1.11"
 # Setting base variables
 BASE_DIR=$(dirname "$0")
 NAME_PATTERN="^[A-Za-z][A-Za-z0-9\-\_\.]+[A-Za-z0-9]$" # regexp pattern for name checking
-BUCKET_NAME_PATTERN="^[a-z][a-z0-9\-\.\_]+[a-z0-9]+$"
+BUCKET_NAME_PATTERN="^[a-z][a-z0-9\-\.\_]+[a-z0-9]$"
 CONFIG_FILE_NAME_DEFAULT="upload"         # Default name for the config file to save.
 CONFIG_FILE_TYPE="dist.config"            # Config file ending.
 LOG_FILE_TYPE="dist.log"                  # Log file ending. Name will be the same as of config file.
@@ -382,11 +382,11 @@ if [ -z "$S3_BUCKET" ]; then
   S3_BUCKET=$DEFAULT_BUCKET
 fi
 # Checking the given bucket name format
-if [[ "$S3_BUCKET" =~ $BUCKET_NAME_PATTERN ]]; then
-  echoS "  Using S3 bucket: $S3_BUCKET"
-else
-  echo "ERROR: Invalid bucket name!"; exit 1;
-fi
+# if [[ "$S3_BUCKET" =~ $BUCKET_NAME_PATTERN ]]; then
+#   echoS "  Using S3 bucket: $S3_BUCKET"
+# else
+#   echo "ERROR: Invalid bucket name!"; exit 1;
+# fi
 
 # If in write mode, then perform some tests
 if [ "$CONFIG_WRITE_MODE" = true ] ; then
@@ -429,11 +429,11 @@ fi
 # If not switched off  and its name differs from main bucket, check it (if in write mode)
 if [ -n "$BACKUP_BUCKET" ] && [ "$BACKUP_BUCKET" != "$S3_BUCKET" ]  && [ "$BACKUP_BUCKET" != "off"  ] && [ "$CONFIG_WRITE_MODE" = true ] ; then
   # Checking the given bucket name format
-  if [[ "$BACKUP_BUCKET" =~ $BUCKET_NAME_PATTERN ]]; then
-    echoS "  Using S3 bucket for backup: $BACKUP_BUCKET"
-  else
-    echo "ERROR: Invalid backup bucket name ($BACKUP_BUCKET)!"; exit 1;
-  fi
+  # if [[ "$BACKUP_BUCKET" =~ $BUCKET_NAME_PATTERN ]]; then
+  #   echoS "  Using S3 bucket for backup: $BACKUP_BUCKET"
+  # else
+  #   echo "ERROR: Invalid backup bucket name ($BACKUP_BUCKET)!"; exit 1;
+  # fi
   # Checking whether the bucket exists on S3 and reachable with the given profile
   if aws s3 ls $BACKUP_BUCKET --profile $PROFILE  2>&1 | grep -q 'NoSuchBucket' ; then
     echo "ERROR: The given S3 backup bucket '$BACKUP_BUCKET' does not exists or not reachable with the credentials set in the profile '$PROFILE' !"; exit 1
